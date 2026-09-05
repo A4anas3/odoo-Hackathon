@@ -49,12 +49,17 @@ export function PayslipDetailPage() {
     }
   };
 
-  const handleEmail = () => {
+  const handleEmail = async () => {
+    if (!payslip?.id) return;
     setIsSending(true);
-    setTimeout(() => {
+    try {
+      const res = await payslipApi.sendPayslipEmail(payslip.id);
+      toast.success(res?.message || 'Payslip statement email dispatched.');
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to send email.');
+    } finally {
       setIsSending(false);
-      toast.success(`Payslip receipt emailed.`);
-    }, 900);
+    }
   };
 
   if (isLoading) {

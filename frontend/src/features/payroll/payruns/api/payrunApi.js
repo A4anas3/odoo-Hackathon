@@ -38,7 +38,7 @@ export const payrunApi = {
       periodStart: data.startDate || data.periodStart,
       periodEnd: data.endDate || data.periodEnd,
       salaryStructureId: data.salaryStructureId,
-      createdBy: 'admin@company.com',
+      employeeIds: data.employeeIds,
     };
     const res = await apiClient.post('/payroll/payruns', payload);
     return res.data;
@@ -51,6 +51,11 @@ export const payrunApi = {
 
   async payPayrun(id) {
     const res = await apiClient.patch(`/payroll/payruns/${id}/pay`);
+    return res.data;
+  },
+
+  async sendPayslips(id) {
+    const res = await apiClient.post(`/payroll/payruns/${id}/send-payslips`);
     return res.data;
   },
 };

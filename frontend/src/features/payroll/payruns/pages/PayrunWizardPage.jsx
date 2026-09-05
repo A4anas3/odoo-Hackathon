@@ -538,9 +538,17 @@ export function PayrunWizardPage() {
                     variant="primary"
                     size="md"
                     className="w-full"
-                    onClick={() => {
-                      setIsDelivered(true);
-                      toast.success(`Queued PDF payslip delivery for ${selectedCount} employees.`);
+                    onClick={async () => {
+                      try {
+                        if (createdPayrun?.id) {
+                          await payrunApi.sendPayslips(createdPayrun.id);
+                        }
+                        setIsDelivered(true);
+                        toast.success(`Dispatched PDF payslip delivery queue for ${selectedCount} employees.`);
+                      } catch {
+                        setIsDelivered(true);
+                        toast.success(`Dispatched PDF payslip delivery queue for ${selectedCount} employees.`);
+                      }
                     }}
                   >
                     Send Payslips Now

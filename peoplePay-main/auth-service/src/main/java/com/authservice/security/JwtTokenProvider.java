@@ -73,7 +73,7 @@ public class JwtTokenProvider {
         try {
             parseAndValidate(token);
             return true;
-        } catch (ExpiredJwtException | SignatureException | JwtException | IllegalArgumentException e) {
+        } catch (JwtException | IllegalArgumentException e) {
             return false;
         }
     }

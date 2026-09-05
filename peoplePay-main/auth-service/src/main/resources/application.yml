@@ -1,19 +1,19 @@
 server:
-  port: 8080
+  port: ${SERVER_PORT:8085}
 
 spring:
   application:
     name: auth-service
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/authdb}
-    username: ${SPRING_DATASOURCE_USERNAME:authuser}
-    password: ${SPRING_DATASOURCE_PASSWORD:authpass}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/postgres}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:00889977}
     driver-class-name: org.postgresql.Driver
 
   jpa:
     hibernate:
-      ddl-auto: validate   # schema is owned by Flyway migrations, not Hibernate
+      ddl-auto: update
     open-in-view: false
     properties:
       hibernate:

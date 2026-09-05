@@ -24,6 +24,11 @@ export const payslipApi = {
     return res.data;
   },
 
+  async sendPayslipEmail(id) {
+    const res = await apiClient.post(`/payroll/payslips/${id}/send-email`);
+    return res.data;
+  },
+
   async downloadPayslipPdf(id) {
     const res = await apiClient.get(`/payroll/payslips/${id}/pdf`, {
       responseType: 'blob',

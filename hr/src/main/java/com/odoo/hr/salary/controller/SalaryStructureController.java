@@ -38,6 +38,7 @@ public class SalaryStructureController {
     }
 
     @PostMapping
+    @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<SalaryStructureResponse> createStructure(@Valid @RequestBody CreateSalaryStructureRequest request) {
         SalaryStructure structure = SalaryStructure.builder()
                 .name(request.getName())
@@ -47,5 +48,28 @@ public class SalaryStructureController {
 
         SalaryStructure saved = salaryStructureRepository.save(structure);
         return ResponseEntity.status(HttpStatus.CREATED).body(SalaryStructureResponse.fromEntity(saved));
+    }
+
+    @PutMapping("/{id}")
+    @org.springframework.transaction.annotation.Transactional
+    public ResponseEntity<SalaryStructureResponse> updateStructure(
+            @PathVariable UUID id,
+            @Valid @RequestBody CreateSalaryStructureRequest request) {
+        SalaryStructure structure = salaryStructureRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Structure not found with id: " + id));
+
+        if (request.getName() != null) structure.setName(request.getName());
+        if (request.getDescription() != null) structure.setDescription(request.getDescription());
+        if (request.getStatus() != null) structure.setStatus(request.getStatus());
+
+        SalaryStructure saved = salaryStructureRepository.save(structure);
+        return ResponseEntity.ok(SalaryStructureResponse.fromEntity(saved));
+    }
+
+    @DeleteMapping("/{id}")
+    @org.springframework.transaction.annotation.Transactional
+    public ResponseEntity<Void> deleteStructure(@PathVariable UUID id) {
+        salaryStructureRepository.deleteById(id);
+        return ResponseEntity.noContent().build();
     }
 }

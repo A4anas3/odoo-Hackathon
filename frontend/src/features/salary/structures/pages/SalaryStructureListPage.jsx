@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/modal/Modal';
 import { FormField } from '@/components/form/FormField';
 import { Input } from '@/components/form/Input';
-import { Layers, Plus, Eye, Calculator } from 'lucide-react';
+import { Layers, Plus, Eye, Calculator, Trash2 } from 'lucide-react';
 import { ROUTES } from '@/config/routes';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -52,6 +52,17 @@ export function SalaryStructureListPage() {
       description: formData.description.trim(),
     });
   };
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => salaryStructureApi.deleteStructure(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salaryStructures'] });
+      toast.success('Salary structure removed successfully.');
+    },
+    onError: (err) => {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to delete salary structure.');
+    },
+  });
 
   const columns = [
     {
@@ -116,14 +127,25 @@ export function SalaryStructureListPage() {
       key: 'actions',
       align: 'right',
       render: (_, row) => (
-        <Button
-          variant="ghost"
-          size="xs"
-          title="View Rules in Builder"
-          onClick={() => navigate(ROUTES.SALARY_RULES)}
-        >
-          <Calculator className="w-3.5 h-3.5 text-slate-500" />
-        </Button>
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="xs"
+            title="Configure Rules"
+            onClick={() => navigate(ROUTES.SALARY_RULES)}
+          >
+            <Calculator className="w-3.5 h-3.5 text-[#714B67]" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="text-rose-600 hover:bg-rose-50"
+            title="Delete Structure"
+            onClick={() => deleteMutation.mutate(row.id)}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
       ),
     },
   ];

@@ -272,6 +272,8 @@ public class PayrollService {
             boolean isPrivileged = auth != null && auth.getAuthorities().stream()
                     .anyMatch(a -> a.getAuthority().contains("ADMIN")
                                 || a.getAuthority().contains("HR_MANAGER")
+                                || a.getAuthority().contains("MANAGER")
+                                || a.getAuthority().contains("HR")
                                 || a.getAuthority().contains("HR_PAYROLL"));
             if (!isPrivileged) {
                 throw new ConflictException("You are not authorized to download another employee's payslip.");

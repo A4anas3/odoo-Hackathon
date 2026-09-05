@@ -6,7 +6,10 @@ import com.odoo.hr.payroll.dto.PayslipResponse;
 import com.odoo.hr.payroll.service.PayrollService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -57,5 +60,14 @@ public class PayrollController {
     @GetMapping("/payslips/{id}")
     public ResponseEntity<PayslipResponse> getPayslipById(@PathVariable UUID id) {
         return ResponseEntity.ok(payrollService.getPayslipById(id));
+    }
+
+    @GetMapping("/payslips/{id}/pdf")
+    public ResponseEntity<byte[]> getPayslipPdf(@PathVariable UUID id) {
+        byte[] pdfBytes = payrollService.generatePayslipPdf(id);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        headers.setContentDisposition(ContentDisposition.attachment().filename("payslip-" + id.toString().substring(0, 8) + ".pdf").build());
+        return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
     }
 }

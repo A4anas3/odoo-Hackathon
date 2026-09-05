@@ -6,11 +6,12 @@ import { Button } from '../../../components/ui/Button';
 import { ConfirmModal } from '../../../components/modal/ConfirmModal';
 import { timeoffApi } from '../api/timeoffApi';
 import { useCurrentUser } from '../../../hooks/auth/useCurrentUser';
+import { useMyProfile } from '../../employees/hooks/useEmployees';
 import { PERMISSIONS } from '../../../config/permissions';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../../../hooks/useToast';
 import { formatDate } from '../../../lib/utils/formatters';
-import { Check, X, Plus, Users, UserCheck } from 'lucide-react';
+import { Check, X, Plus, Users, UserCheck, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ROUTES } from '../../../config/routes';
 
@@ -18,6 +19,8 @@ export function TimeOffRequestsPage() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const { can } = useCurrentUser();
+  const { data: profile } = useMyProfile();
+  const isEmployeeInactive = profile?.status && profile.status !== 'ACTIVE';
   const canApprove = can(PERMISSIONS.CAN_APPROVE_LEAVE);
 
   // If approver, allow switching between 'all' and 'mine'
@@ -154,13 +157,35 @@ export function TimeOffRequestsPage() {
           : 'Track the status and review decisions of your personal time off requests.'
       }
       actions={
-        <Link to={ROUTES.TIMEOFF}>
-          <Button variant="primary" size="sm" icon={Plus}>
-            New Application
+        isEmployeeInactive ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={Plus}
+            disabled
+            title="Leave applications are disabled for inactive accounts"
+          >
+            Account {profile?.status || 'Inactive'}
           </Button>
-        </Link>
+        ) : (
+          <Link to={ROUTES.TIMEOFF}>
+            <Button variant="primary" size="sm" icon={Plus}>
+              New Application
+            </Button>
+          </Link>
+        )
       }
     >
+      {/* Inactive Profile Alert Banner */}
+      {isEmployeeInactive && (
+        <div className="mb-4 p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center gap-2.5 shadow-2xs">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          <span>
+            Your account is currently marked as <strong>{profile?.status || 'INACTIVE'}</strong>. Submitting new leave applications is strictly disabled.
+          </span>
+        </div>
+      )}
+
       {/* Scope Selector Tabs for Admin / Manager */}
       {canApprove && (
         <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/80 mb-4 w-fit shadow-2xs">

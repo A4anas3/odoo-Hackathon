@@ -28,12 +28,25 @@ export function PayslipDetailPage() {
     window.print();
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
+    if (!payslip?.id) return;
     setIsDownloading(true);
-    setTimeout(() => {
-      setIsDownloading(false);
+    try {
+      const blob = await payslipApi.downloadPayslipPdf(payslip.id);
+      const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `payslip-${payslip.slipNumber || payslip.id.slice(0, 8)}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
       toast.success(`PDF for ${payslip?.slipNumber || 'payslip'} downloaded successfully.`);
-    }, 800);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to download PDF.');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const handleEmail = () => {

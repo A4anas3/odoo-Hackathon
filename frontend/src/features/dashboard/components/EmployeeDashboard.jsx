@@ -137,11 +137,23 @@ export function EmployeeDashboard({ user }) {
             </Button>
           )}
 
-          <Link to={ROUTES.TIMEOFF_REQUESTS}>
-            <Button variant="secondary" size="sm" icon={Plus} disabled={isEmployeeInactive}>
-              Request Leave
+          {isEmployeeInactive ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Plus}
+              disabled
+              title="Time off requests are disabled for inactive accounts"
+            >
+              Account {profile?.status || 'Inactive'}
             </Button>
-          </Link>
+          ) : (
+            <Link to={ROUTES.TIMEOFF}>
+              <Button variant="secondary" size="sm" icon={Plus}>
+                Request Leave
+              </Button>
+            </Link>
+          )}
         </div>
       }
     >
@@ -270,11 +282,13 @@ export function EmployeeDashboard({ user }) {
             title="My Time Off Requests"
             subtitle="Status of your annual, sick, or casual leave applications"
             action={
-              <Link to={ROUTES.TIMEOFF_REQUESTS}>
-                <Button variant="ghost" size="xs">
-                  Apply Leave <ArrowRight className="w-3 h-3 ml-1" />
-                </Button>
-              </Link>
+              !isEmployeeInactive ? (
+                <Link to={ROUTES.TIMEOFF}>
+                  <Button variant="ghost" size="xs">
+                    Apply Leave <ArrowRight className="w-3 h-3 ml-1" />
+                  </Button>
+                </Link>
+              ) : null
             }
           />
           <CardContent className="p-0">

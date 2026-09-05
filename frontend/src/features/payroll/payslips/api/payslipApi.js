@@ -23,4 +23,14 @@ export const payslipApi = {
     const res = await apiClient.get(`/payroll/payslips/${id}`);
     return res.data;
   },
+
+  async downloadPayslipPdf(id) {
+    const res = await apiClient.get(`/payroll/payslips/${id}/pdf`, {
+      responseType: 'blob',
+      headers: {
+        Accept: 'application/pdf, application/octet-stream, */*',
+      },
+    });
+    return res.data;
+  },
 };

@@ -119,6 +119,7 @@ export function PayrunWizardPage() {
         periodStart,
         periodEnd,
         salaryStructureId: activeStructure?.id,
+        employeeIds: selectedEmployees,
       });
       setCreatedPayrun(res);
       setIsCalculated(true);

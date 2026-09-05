@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -22,4 +23,6 @@ public class GeneratePayrunRequest {
     private LocalDate periodEnd;
 
     private UUID salaryStructureId;
+
+    private List<UUID> employeeIds;
 }

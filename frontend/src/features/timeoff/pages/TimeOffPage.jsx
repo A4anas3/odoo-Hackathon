@@ -11,16 +11,19 @@ import { Input } from '../../../components/form/Input';
 import { Select } from '../../../components/form/Select';
 import { timeoffApi } from '../api/timeoffApi';
 import { useCurrentUser } from '../../../hooks/auth/useCurrentUser';
+import { useMyProfile } from '../../employees/hooks/useEmployees';
 import { PERMISSIONS } from '../../../config/permissions';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../../../hooks/useToast';
-import { Calendar, Plus, CheckCircle2, Clock, CalendarDays, Plane, Users, UserCheck } from 'lucide-react';
+import { Calendar, Plus, CheckCircle2, Clock, CalendarDays, Plane, Users, UserCheck, AlertTriangle } from 'lucide-react';
 import { formatDate } from '../../../lib/utils/formatters';
 
 export function TimeOffPage() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const { can } = useCurrentUser();
+  const { data: profile } = useMyProfile();
+  const isEmployeeInactive = profile?.status && profile.status !== 'ACTIVE';
   const isAdminOrManager = can(PERMISSIONS.CAN_APPROVE_LEAVE);
 
   // Tab mode for Admins/Managers: 'company' (all staff) vs 'mine' (personal)
@@ -73,6 +76,10 @@ export function TimeOffPage() {
   });
 
   const handleRequest = () => {
+    if (isEmployeeInactive) {
+      toast.error('Time off requests are disabled for inactive accounts.');
+      return;
+    }
     if (!formData.startDate || !formData.endDate) {
       toast.error('Please select both start and end dates.');
       return;
@@ -194,11 +201,39 @@ export function TimeOffPage() {
           : 'Track your personal leave balances and submit time off requests.'
       }
       actions={
-        <Button variant="primary" size="sm" icon={Plus} onClick={() => setIsModalOpen(true)}>
-          Request Time Off
+        <Button
+          variant={isEmployeeInactive ? 'secondary' : 'primary'}
+          size="sm"
+          icon={Plus}
+          disabled={isEmployeeInactive}
+          title={isEmployeeInactive ? 'Leave requests are disabled for inactive accounts' : undefined}
+          onClick={() => {
+            if (isEmployeeInactive) {
+              toast.error('Leave requests are disabled for inactive accounts.');
+              return;
+            }
+            setIsModalOpen(true);
+          }}
+        >
+          {isEmployeeInactive ? `Account ${profile?.status || 'Inactive'}` : 'Request Time Off'}
         </Button>
       }
     >
+      {/* Inactive Profile Alert Banner */}
+      {isEmployeeInactive && (
+        <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-start gap-3 shadow-2xs">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-semibold text-amber-900 block text-sm">
+              Employment Status: {profile?.status || 'INACTIVE'}
+            </span>
+            <p className="mt-0.5 text-amber-700 leading-relaxed">
+              Your employment account is currently marked as <strong>{profile?.status || 'INACTIVE'}</strong>. Time off requests and new leave submissions are strictly disabled. Please contact your HR administrator for assistance.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Scope Selector Tabs for Admin / Manager */}
       {isAdminOrManager && (
         <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/80 mb-4 w-fit shadow-2xs">
@@ -368,9 +403,10 @@ export function TimeOffPage() {
               Cancel
             </Button>
             <Button
-              variant="primary"
+              variant={isEmployeeInactive ? 'secondary' : 'primary'}
               size="sm"
               isLoading={submitMutation.isPending}
+              disabled={isEmployeeInactive || submitMutation.isPending}
               onClick={handleRequest}
             >
               Submit Application

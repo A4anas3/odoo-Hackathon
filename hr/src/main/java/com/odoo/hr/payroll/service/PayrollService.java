@@ -45,6 +45,7 @@ public class PayrollService {
     private final SalaryStructureRepository salaryStructureRepository;
     private final SalaryRuleRepository salaryRuleRepository;
     private final CurrentEmployeeService currentEmployeeService;
+    private final PayslipPdfService payslipPdfService;
 
     @Transactional
     public PayrunResponse generatePayrun(GeneratePayrunRequest request) {
@@ -75,9 +76,16 @@ public class PayrollService {
                 .payslips(new ArrayList<>())
                 .build();
 
-        List<Employee> activeEmployees = employeeRepository.findByStatus("ACTIVE");
+        List<Employee> targetEmployees;
+        if (request.getEmployeeIds() != null && !request.getEmployeeIds().isEmpty()) {
+            targetEmployees = employeeRepository.findAllById(request.getEmployeeIds()).stream()
+                    .filter(e -> e.getStatus() != null && "ACTIVE".equalsIgnoreCase(e.getStatus()))
+                    .toList();
+        } else {
+            targetEmployees = employeeRepository.findByStatus("ACTIVE");
+        }
 
-        for (Employee emp : activeEmployees) {
+        for (Employee emp : targetEmployees) {
             // Check if payslip already exists for this period
             if (payslipRepository.existsByEmployeeIdAndPeriodStartAndPeriodEnd(
                     emp.getId(), request.getPeriodStart(), request.getPeriodEnd())) {
@@ -251,5 +259,25 @@ public class PayrollService {
 
         Payrun updated = payrunRepository.save(payrun);
         return PayrunResponse.fromEntity(updated, true);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] generatePayslipPdf(UUID id) {
+        Payslip payslip = payslipRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Payslip not found with id: " + id));
+
+        Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
+        if (currentEmployee != null && currentEmployee.getId() != null && !currentEmployee.getId().equals(payslip.getEmployee().getId())) {
+            org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            boolean isPrivileged = auth != null && auth.getAuthorities().stream()
+                    .anyMatch(a -> a.getAuthority().contains("ADMIN")
+                                || a.getAuthority().contains("HR_MANAGER")
+                                || a.getAuthority().contains("HR_PAYROLL"));
+            if (!isPrivileged) {
+                throw new ConflictException("You are not authorized to download another employee's payslip.");
+            }
+        }
+
+        return payslipPdfService.generatePayslipPdf(payslip);
     }
 }

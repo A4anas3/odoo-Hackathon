@@ -48,7 +48,7 @@ public class EmployeeService {
 
         String authProviderUserId = request.getAuthProviderUserId();
         if (authProviderUserId == null || authProviderUserId.isBlank()) {
-            authProviderUserId = currentEmployeeService.getAuthenticatedAuthProviderUserId();
+            authProviderUserId = "unlinked-" + java.util.UUID.randomUUID();
         }
         return createEmployeeWithAuthProviderUserId(request, authProviderUserId);
     }

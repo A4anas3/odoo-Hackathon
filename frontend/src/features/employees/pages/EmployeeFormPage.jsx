@@ -103,10 +103,24 @@ export function EmployeeFormPage() {
       return;
     }
 
+    const selectedDept = departments.find((d) => d.name === formData.departmentName);
+    const selectedJob = jobPositions.find((j) => (j.title || j.name) === formData.jobPositionName);
+
     const payload = {
-      ...formData,
-      department: { name: formData.departmentName },
-      jobPosition: { name: formData.jobPositionName },
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      email: formData.email,
+      phone: formData.phone,
+      dateOfBirth: formData.dateOfBirth || null,
+      address: formData.address,
+      departmentId: selectedDept?.id || null,
+      jobPositionId: selectedJob?.id || null,
+      employeeType: formData.employeeType,
+      status: formData.status,
+      joiningDate: formData.joiningDate || null,
+      bankName: formData.bankName,
+      bankAccountNo: formData.bankAccountNo,
+      ifscCode: formData.ifscCode,
     };
 
     if (isEdit) {
@@ -252,6 +266,8 @@ export function EmployeeFormPage() {
                   { value: 'ACTIVE', label: 'Active' },
                   { value: 'ON_LEAVE', label: 'On Leave' },
                   { value: 'INACTIVE', label: 'Inactive' },
+                  { value: 'TERMINATED', label: 'Terminated / Fired' },
+                  { value: 'ARCHIVED', label: 'Archived' },
                 ]}
                 value={formData.status}
                 onChange={(e) => handleChange('status', e.target.value)}

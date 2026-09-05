@@ -88,6 +88,19 @@ public class UserService {
         return toResponse(userRepository.save(user));
     }
 
+    @Transactional
+    public UserResponse updateStatusByEmail(String email, Boolean enabled, Boolean accountLocked) {
+        User user = getByEmail(email);
+        if (enabled != null) {
+            user.setEnabled(enabled);
+        }
+        if (accountLocked != null) {
+            user.setAccountLocked(accountLocked);
+        }
+        User saved = userRepository.save(user);
+        return toResponse(saved);
+    }
+
     public Page<UserResponse> listUsers(Pageable pageable) {
         return userRepository.findAll(pageable).map(this::toResponse);
     }

@@ -2,22 +2,26 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageContainer } from '../../../components/layout/PageContainer';
 import { Card, CardContent } from '../../../components/ui/Card';
+import { Button } from '../../../components/ui/Button';
 import { FormField } from '../../../components/form/FormField';
 import { Input } from '../../../components/form/Input';
 import { Select } from '../../../components/form/Select';
-import { Button } from '../../../components/ui/Button';
 import { contractApi } from '../api/contractApi';
+import { useEmployees } from '../../employees/hooks/useEmployees';
 import { useToast } from '../../../hooks/useToast';
 import { ROUTES } from '../../../config/routes';
-import { Save, ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Save } from 'lucide-react';
 
 export function ContractFormPage() {
   const navigate = useNavigate();
   const toast = useToast();
 
+  const { data: employees = [] } = useEmployees();
+
   const [formData, setFormData] = useState({
-    employeeName: 'Sarah Connor',
-    wage: 6500,
+    employeeId: '',
+    employeeName: '',
+    wage: 5000,
     wageType: 'MONTHLY',
     structureName: 'Regular Full-Time',
     scheduleName: 'Standard 40h',
@@ -28,18 +32,42 @@ export function ContractFormPage() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const employeeOptions = employees.map((emp) => ({
+    value: emp.id,
+    label: `${emp.firstName} ${emp.lastName || ''} (${emp.employeeCode || 'No code'})`.trim(),
+  }));
+
+  const handleEmployeeChange = (empId) => {
+    const found = employees.find((e) => e.id === empId);
+    setFormData((prev) => ({
+      ...prev,
+      employeeId: empId,
+      employeeName: found ? `${found.firstName} ${found.lastName || ''}`.trim() : '',
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.employeeId && employees.length > 0) {
+      toast.error('Please select an employee.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       await contractApi.createContract({
-        ...formData,
-        employee: { name: formData.employeeName, code: 'EMP-001' },
+        employeeId: formData.employeeId,
+        wage: Number(formData.wage),
+        wageType: formData.wageType,
+        salaryStructureName: formData.structureName,
+        workingScheduleName: formData.scheduleName,
+        startDate: formData.startDate,
+        endDate: formData.endDate || null,
+        status: formData.status,
       });
       toast.success('Contract created successfully.');
       navigate(ROUTES.CONTRACTS);
-    } catch {
-      toast.error('Failed to create contract.');
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to create contract.');
     } finally {
       setIsSubmitting(false);
     }
@@ -63,9 +91,12 @@ export function ContractFormPage() {
           <CardContent className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField label="Employee" required>
               <Select
-                options={['Sarah Connor', 'Michael Scott', 'Dwight Schrute', 'Pam Beesly', 'Jim Halpert', 'Alex Vance']}
-                value={formData.employeeName}
-                onChange={(e) => setFormData({ ...formData, employeeName: e.target.value })}
+                options={[
+                  { value: '', label: '-- Select Employee --' },
+                  ...employeeOptions,
+                ]}
+                value={formData.employeeId}
+                onChange={(e) => handleEmployeeChange(e.target.value)}
               />
             </FormField>
 

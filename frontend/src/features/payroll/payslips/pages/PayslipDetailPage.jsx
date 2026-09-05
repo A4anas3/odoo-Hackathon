@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { PageContainer } from '@/components/layout/PageContainer';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Card } from '@/components/ui/Card';
 import { StatusBadge } from '@/components/badge/StatusBadge';
 import { Button } from '@/components/ui/Button';
 import { useQuery } from '@tanstack/react-query';
@@ -9,7 +9,8 @@ import { payslipApi } from '../api/payslipApi';
 import { formatCurrency, formatDate } from '@/lib/utils/formatters';
 import { useToast } from '@/hooks/useToast';
 import { ROUTES } from '@/config/routes';
-import { ArrowLeft, Download, Mail, Printer, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Download, Mail, Printer } from 'lucide-react';
+import { Spinner } from '@/components/loading/Spinner';
 
 export function PayslipDetailPage() {
   const { id } = useParams();
@@ -18,7 +19,7 @@ export function PayslipDetailPage() {
   const [isSending, setIsSending] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  const { data: payslip = {} } = useQuery({
+  const { data: payslip, isLoading } = useQuery({
     queryKey: ['payroll', 'payslip', id],
     queryFn: () => payslipApi.getPayslipById(id),
   });
@@ -31,7 +32,7 @@ export function PayslipDetailPage() {
     setIsDownloading(true);
     setTimeout(() => {
       setIsDownloading(false);
-      toast.success(`PDF for ${payslip.slipNumber} downloaded successfully.`);
+      toast.success(`PDF for ${payslip?.slipNumber || 'payslip'} downloaded successfully.`);
     }, 800);
   };
 
@@ -39,14 +40,51 @@ export function PayslipDetailPage() {
     setIsSending(true);
     setTimeout(() => {
       setIsSending(false);
-      toast.success(`Payslip receipt emailed to ${payslip.employee?.name}.`);
+      toast.success(`Payslip receipt emailed.`);
     }, 900);
   };
+
+  if (isLoading) {
+    return (
+      <PageContainer title="Payslip Details">
+        <div className="py-20 flex justify-center">
+          <Spinner size="lg" />
+        </div>
+      </PageContainer>
+    );
+  }
+
+  if (!payslip) {
+    return (
+      <PageContainer title="Payslip Details">
+        <div className="py-16 text-center text-slate-500">
+          <p className="font-semibold text-sm">Payslip record not found.</p>
+          <Button variant="secondary" size="sm" className="mt-4" onClick={() => navigate(ROUTES.PAYSLIPS)}>
+            Back to Payslips
+          </Button>
+        </div>
+      </PageContainer>
+    );
+  }
+
+  const empName = payslip.employeeName || payslip.employee?.name || (payslip.employee?.firstName ? `${payslip.employee.firstName} ${payslip.employee.lastName || ''}`.trim() : 'Employee');
+  const empCode = payslip.employeeCode || payslip.employee?.code || '—';
+  const deptName = payslip.departmentName || payslip.employee?.dept || '—';
+  const periodDisplay = payslip.period || (payslip.periodStart ? `${formatDate(payslip.periodStart)} – ${formatDate(payslip.periodEnd)}` : '—');
+
+  // Categorize lines into earnings and deductions
+  const allLines = Array.isArray(payslip.lines) ? payslip.lines : [];
+  const earnings = payslip.earnings || allLines.filter((l) => l.category !== 'DED' && l.amount > 0);
+  const deductions = payslip.deductions || allLines.filter((l) => l.category === 'DED' || l.amount < 0);
+
+  const gross = payslip.grossSalary ?? payslip.grossAmount ?? 0;
+  const totalDeductions = payslip.totalDeductions ?? payslip.deductionsAmount ?? 0;
+  const net = payslip.netSalary ?? payslip.netAmount ?? 0;
 
   return (
     <PageContainer
       title={`Payslip ${payslip.slipNumber || ''}`}
-      description={`Disbursement statement for ${payslip.period || 'September 2026'}`}
+      description={`Disbursement statement for ${periodDisplay}`}
       actions={
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" icon={ArrowLeft} onClick={() => navigate(ROUTES.PAYSLIPS)}>
@@ -85,13 +123,13 @@ export function PayslipDetailPage() {
               O
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 leading-none">Odoo Enterprise Corp</h2>
+              <h2 className="text-base font-bold text-slate-900 leading-none">Odoo Enterprise Suite</h2>
               <p className="text-xs text-slate-400 mt-1">Human Resources & Payroll Department</p>
             </div>
           </div>
           <div className="text-right">
             <span className="text-xs font-mono font-bold text-slate-900 block">
-              {payslip.slipNumber || 'SLIP-2026-09-001'}
+              {payslip.slipNumber || '—'}
             </span>
             <div className="mt-1 flex justify-end">
               <StatusBadge status={payslip.status || 'PAID'} />
@@ -103,19 +141,19 @@ export function PayslipDetailPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-50/80 rounded-lg text-xs">
           <div>
             <span className="text-[10px] text-slate-400 font-semibold uppercase block">Employee Name</span>
-            <span className="font-bold text-slate-900 mt-0.5 block">{payslip.employee?.name || 'Sarah Connor'}</span>
+            <span className="font-bold text-slate-900 mt-0.5 block">{empName}</span>
           </div>
           <div>
             <span className="text-[10px] text-slate-400 font-semibold uppercase block">Employee Code</span>
-            <span className="font-mono font-bold text-slate-900 mt-0.5 block">{payslip.employee?.code || 'EMP-001'}</span>
+            <span className="font-mono font-bold text-slate-900 mt-0.5 block">{empCode}</span>
           </div>
           <div>
             <span className="text-[10px] text-slate-400 font-semibold uppercase block">Department</span>
-            <span className="font-semibold text-slate-900 mt-0.5 block">{payslip.employee?.dept || 'Engineering'}</span>
+            <span className="font-semibold text-slate-900 mt-0.5 block">{deptName}</span>
           </div>
           <div>
             <span className="text-[10px] text-slate-400 font-semibold uppercase block">Pay Period</span>
-            <span className="font-semibold text-[#714B67] mt-0.5 block">{payslip.period || 'September 2026'}</span>
+            <span className="font-semibold text-[#714B67] mt-0.5 block">{periodDisplay}</span>
           </div>
         </div>
 
@@ -127,21 +165,20 @@ export function PayslipDetailPage() {
               Earnings & Allowances
             </div>
             <div className="divide-y divide-slate-100">
-              {(payslip.earnings || [
-                { name: 'Basic Salary', amount: 3250 },
-                { name: 'House Rent Allowance (HRA)', amount: 1625 },
-                { name: 'Transport Conveyance', amount: 300 },
-                { name: 'Special Allowance', amount: 1325 },
-              ]).map((e, idx) => (
-                <div key={idx} className="px-3.5 py-2 flex justify-between">
-                  <span className="text-slate-600">{e.name}</span>
-                  <span className="font-semibold text-slate-900">{formatCurrency(e.amount)}</span>
-                </div>
-              ))}
+              {earnings.length > 0 ? (
+                earnings.map((e, idx) => (
+                  <div key={idx} className="px-3.5 py-2 flex justify-between">
+                    <span className="text-slate-600">{e.ruleName || e.name}</span>
+                    <span className="font-semibold text-slate-900">{formatCurrency(Math.abs(e.amount))}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="px-3.5 py-3 text-slate-400 italic">No breakdown items recorded</div>
+              )}
             </div>
             <div className="bg-slate-50/70 px-3.5 py-2.5 font-bold flex justify-between border-t border-slate-200 text-slate-900">
               <span>Gross Earnings</span>
-              <span>{formatCurrency(payslip.grossAmount || 6500)}</span>
+              <span>{formatCurrency(gross)}</span>
             </div>
           </div>
 
@@ -151,19 +188,20 @@ export function PayslipDetailPage() {
               Deductions & Withholdings
             </div>
             <div className="divide-y divide-slate-100">
-              {(payslip.deductions || [
-                { name: 'Income Tax Withholding', amount: 650 },
-                { name: 'Provident Fund (PF)', amount: 162.5 },
-              ]).map((d, idx) => (
-                <div key={idx} className="px-3.5 py-2 flex justify-between">
-                  <span className="text-slate-600">{d.name}</span>
-                  <span className="font-semibold text-rose-600">-{formatCurrency(d.amount)}</span>
-                </div>
-              ))}
+              {deductions.length > 0 ? (
+                deductions.map((d, idx) => (
+                  <div key={idx} className="px-3.5 py-2 flex justify-between">
+                    <span className="text-slate-600">{d.ruleName || d.name}</span>
+                    <span className="font-semibold text-rose-600">-{formatCurrency(Math.abs(d.amount))}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="px-3.5 py-3 text-slate-400 italic">No deductions applied</div>
+              )}
             </div>
             <div className="bg-slate-50/70 px-3.5 py-2.5 font-bold flex justify-between border-t border-slate-200 text-rose-700">
               <span>Total Deductions</span>
-              <span>-{formatCurrency(payslip.deductionsAmount || 812.5)}</span>
+              <span>-{formatCurrency(totalDeductions)}</span>
             </div>
           </div>
         </div>
@@ -175,12 +213,14 @@ export function PayslipDetailPage() {
               Net Disbursed Take-Home Salary
             </span>
             <span className="text-2xl font-black text-[#714B67] mt-0.5 block tracking-tight">
-              {formatCurrency(payslip.netAmount || 5687.5)}
+              {formatCurrency(net)}
             </span>
           </div>
           <div className="text-right text-xs text-slate-500">
             <span className="block font-medium">Payment Mode: Direct Deposit</span>
-            <span className="text-[11px] text-slate-400">Deposited on 30 Sep 2026</span>
+            <span className="text-[11px] text-slate-400">
+              {payslip.paymentDate ? `Disbursed on ${formatDate(payslip.paymentDate)}` : 'Processed'}
+            </span>
           </div>
         </div>
       </Card>

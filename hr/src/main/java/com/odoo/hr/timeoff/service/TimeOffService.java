@@ -43,6 +43,10 @@ public class TimeOffService {
 
         Employee employee = currentEmployeeService.getCurrentEmployee();
 
+        if (employee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(employee.getStatus())) {
+            throw new ConflictException("Inactive, suspended, or terminated employees cannot apply for time off. Current employment status: " + (employee.getStatus() != null ? employee.getStatus() : "UNKNOWN"));
+        }
+
         TimeOffType timeOffType = timeOffTypeRepository.findById(request.getTimeOffTypeId())
                 .orElseThrow(() -> new ResourceNotFoundException("TimeOffType not found: " + request.getTimeOffTypeId()));
 
@@ -86,6 +90,9 @@ public class TimeOffService {
         }
 
         Employee reviewer = currentEmployeeService.getCurrentEmployee();
+        if (reviewer.getStatus() == null || !"ACTIVE".equalsIgnoreCase(reviewer.getStatus())) {
+            throw new ConflictException("Terminated or inactive employees cannot review or approve time off requests.");
+        }
         String newStatus = reviewDto.getStatus().trim().toUpperCase();
 
         request.setStatus(newStatus);

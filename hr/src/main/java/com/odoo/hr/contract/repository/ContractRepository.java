@@ -11,6 +11,8 @@ import java.util.UUID;
 @Repository
 public interface ContractRepository extends JpaRepository<Contract, UUID> {
 
+    List<Contract> findByEmployeeId(UUID employeeId);
+
     List<Contract> findByEmployeeIdOrderByStartDateDesc(UUID employeeId);
 
     Optional<Contract> findFirstByEmployeeIdAndStatus(UUID employeeId, String status);

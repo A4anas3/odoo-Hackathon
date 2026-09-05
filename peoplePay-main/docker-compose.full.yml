@@ -44,22 +44,5 @@ services:
     volumes:
       - ./auth-service/src/main/resources/keys:/app/keys:ro
 
-  # Example resource microservice: only holds the PUBLIC key, no users/roles DB.
-  downstream-service:
-    build:
-      context: ./downstream-service-example
-      dockerfile: Dockerfile
-    container_name: downstream-service-example
-    restart: unless-stopped
-    depends_on:
-      - auth-service
-    environment:
-      JWT_PUBLIC_KEY_PATH: /app/keys/public_key.pem
-      JWT_ISSUER: auth-service
-    ports:
-      - "8081:8081"
-    volumes:
-      - ./downstream-service-example/src/main/resources/keys:/app/keys:ro
-
 volumes:
   auth_pgdata:

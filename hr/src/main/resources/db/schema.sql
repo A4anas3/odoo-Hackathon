@@ -386,7 +386,7 @@ CREATE INDEX IF NOT EXISTS idx_notif_jobs_status ON notification_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_notif_jobs_employee ON notification_jobs(employee_id);
 
 -- ==============================================================================
--- 10. Audit & Outbox Events (Kafka / Event Streaming)
+-- 10. Audit & Outbox Events (RabbitMQ / Event Publishing)
 -- ==============================================================================
 
 CREATE TABLE IF NOT EXISTS audit_logs (

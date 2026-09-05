@@ -21,7 +21,11 @@ export function attachInterceptors(axiosInstance) {
     (response) => response,
     (error) => {
       const status = error.response?.status;
-      const message = error.response?.data?.message || error.message || 'An unexpected error occurred';
+      const data = error.response?.data;
+      let message = data?.message || error.message || 'An unexpected error occurred';
+      if (Array.isArray(data?.details) && data.details.length > 0) {
+        message = data.details.join('. ');
+      }
 
       if (status === 401) {
         // Session expired or invalid token

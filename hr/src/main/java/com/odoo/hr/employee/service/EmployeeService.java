@@ -2,6 +2,7 @@ package com.odoo.hr.employee.service;
 
 import com.odoo.hr.common.exception.ConflictException;
 import com.odoo.hr.common.exception.ResourceNotFoundException;
+import com.odoo.hr.contract.repository.ContractRepository;
 import com.odoo.hr.employee.dto.CreateEmployeeRequest;
 import com.odoo.hr.employee.dto.EmployeeResponse;
 import com.odoo.hr.employee.dto.UpdateEmployeeRequest;
@@ -17,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,6 +31,7 @@ public class EmployeeService {
     private final DepartmentRepository departmentRepository;
     private final JobPositionRepository jobPositionRepository;
     private final CurrentEmployeeService currentEmployeeService;
+    private final ContractRepository contractRepository;
 
     @Transactional
     public EmployeeResponse registerCurrentEmployee(CreateEmployeeRequest request) {
@@ -38,6 +41,11 @@ public class EmployeeService {
 
     @Transactional
     public EmployeeResponse createEmployee(CreateEmployeeRequest request) {
+        Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
+        if (currentEmployee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(currentEmployee.getStatus())) {
+            throw new ConflictException("Terminated or inactive employees cannot create employee profiles.");
+        }
+
         String authProviderUserId = request.getAuthProviderUserId();
         if (authProviderUserId == null || authProviderUserId.isBlank()) {
             authProviderUserId = currentEmployeeService.getAuthenticatedAuthProviderUserId();
@@ -130,6 +138,11 @@ public class EmployeeService {
 
     @Transactional
     public EmployeeResponse updateEmployee(UUID id, UpdateEmployeeRequest request) {
+        Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
+        if (currentEmployee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(currentEmployee.getStatus())) {
+            throw new ConflictException("Terminated or inactive employees cannot modify employee records.");
+        }
+
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Employee not found with id: " + id));
 
@@ -159,7 +172,23 @@ public class EmployeeService {
 
         if (request.getJoiningDate() != null) employee.setJoiningDate(request.getJoiningDate());
         if (request.getEmployeeType() != null) employee.setEmployeeType(request.getEmployeeType());
-        if (request.getStatus() != null) employee.setStatus(request.getStatus());
+        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+            String newStatus = request.getStatus().trim().toUpperCase();
+            employee.setStatus(newStatus);
+            if ("TERMINATED".equals(newStatus) || "INACTIVE".equals(newStatus)) {
+                contractRepository.findByEmployeeId(employee.getId()).stream()
+                        .filter(c -> "RUNNING".equalsIgnoreCase(c.getStatus()))
+                        .forEach(c -> {
+                            c.setStatus("CANCELLED");
+                            c.setEndDate(LocalDate.now());
+                            contractRepository.save(c);
+                            log.info("Auto-cancelled contract id={} for deactivated/terminated employee id={}", c.getId(), employee.getId());
+                        });
+                syncAuthAccountStatus(employee.getEmail(), false, true);
+            } else if ("ACTIVE".equals(newStatus)) {
+                syncAuthAccountStatus(employee.getEmail(), true, false);
+            }
+        }
         if (request.getBankAccountNo() != null) employee.setBankAccountNo(request.getBankAccountNo());
         if (request.getBankName() != null) employee.setBankName(request.getBankName());
         if (request.getIfscCode() != null) employee.setIfscCode(request.getIfscCode());
@@ -172,9 +201,31 @@ public class EmployeeService {
 
     @Transactional
     public void deleteEmployee(UUID id) {
-        if (!employeeRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Employee not found with id: " + id);
+        Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
+        if (currentEmployee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(currentEmployee.getStatus())) {
+            throw new ConflictException("Terminated or inactive employees cannot delete employee profiles.");
         }
+
+        Employee employee = employeeRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Employee not found with id: " + id));
+        syncAuthAccountStatus(employee.getEmail(), false, true);
         employeeRepository.deleteById(id);
+    }
+
+    private void syncAuthAccountStatus(String email, boolean enabled, boolean accountLocked) {
+        try {
+            java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+            String uri = String.format("http://localhost:8085/internal/users/status?email=%s&enabled=%b&accountLocked=%b",
+                    java.net.URLEncoder.encode(email, java.nio.charset.StandardCharsets.UTF_8), enabled, accountLocked);
+            java.net.http.HttpRequest req = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create(uri))
+                    .method("PATCH", java.net.http.HttpRequest.BodyPublishers.noBody())
+                    .timeout(java.time.Duration.ofSeconds(3))
+                    .build();
+            client.sendAsync(req, java.net.http.HttpResponse.BodyHandlers.discarding());
+            log.info("Synced auth-service account status for {}: enabled={}, locked={}", email, enabled, accountLocked);
+        } catch (Exception e) {
+            log.warn("Could not sync auth-service status for {}: {}", email, e.getMessage());
+        }
     }
 }

@@ -3,9 +3,10 @@ import { apiClient } from '../../../lib/api/client';
 export const dashboardApi = {
   async getDashboardSummary() {
     try {
-      const [empRes, deptRes, payrunsRes, pendingLeavesRes, attRes] = await Promise.allSettled([
+      const [empRes, deptRes, contractRes, payrunsRes, pendingLeavesRes, attRes] = await Promise.allSettled([
         apiClient.get('/employees'),
         apiClient.get('/departments'),
+        apiClient.get('/contracts'),
         apiClient.get('/payroll/payruns'),
         apiClient.get('/time-off/requests/pending'),
         apiClient.get('/attendance'),
@@ -13,81 +14,111 @@ export const dashboardApi = {
 
       const employees = empRes.status === 'fulfilled' && Array.isArray(empRes.value.data) ? empRes.value.data : [];
       const departments = deptRes.status === 'fulfilled' && Array.isArray(deptRes.value.data) ? deptRes.value.data : [];
+      const contracts = contractRes.status === 'fulfilled' && Array.isArray(contractRes.value.data) ? contractRes.value.data : [];
       const payruns = payrunsRes.status === 'fulfilled' && Array.isArray(payrunsRes.value.data) ? payrunsRes.value.data : [];
       const pendingLeaves = pendingLeavesRes.status === 'fulfilled' && Array.isArray(pendingLeavesRes.value.data) ? pendingLeavesRes.value.data : [];
       const attendance = attRes.status === 'fulfilled' && Array.isArray(attRes.value.data) ? attRes.value.data : [];
 
-      const totalEmployees = employees.length || 5;
-      const activeEmployees = employees.filter((e) => e.status === 'ACTIVE').length || totalEmployees;
-      const totalNetPaid = payruns.reduce((sum, p) => sum + Number(p.totalNet || p.netAmount || 0), 0);
-      const totalGrossPaid = payruns.reduce((sum, p) => sum + Number(p.totalGross || p.grossAmount || 0), 0);
+      const totalEmployees = employees.length;
+      const activeEmployees = employees.filter((e) => e.status === 'ACTIVE').length;
 
-      const deptSalary = departments.map((d) => {
-        const count = employees.filter((e) => e.departmentId === d.id || e.departmentName === d.name).length;
+      // Real net salary paid from actual closed/paid payruns
+      const paidPayruns = payruns.filter((p) => p.status === 'PAID');
+      const targetPayruns = paidPayruns.length > 0 ? paidPayruns : payruns;
+      const totalNetPaid = targetPayruns.reduce((sum, p) => sum + Number(p.totalNet || p.netAmount || 0), 0);
+
+      // Real payslips count across all payruns
+      const totalPayslipsIssued = payruns.reduce(
+        (sum, p) => sum + Number(p.payslipCount || (Array.isArray(p.payslips) ? p.payslips.length : 0)),
+        0
+      );
+
+      // Real department salary distribution from active contracts
+      const empDeptMap = new Map();
+      employees.forEach((e) => {
+        if (e.id) {
+          empDeptMap.set(e.id, e.departmentName || 'General');
+        }
+      });
+
+      const deptSalaryMap = new Map();
+      departments.forEach((d) => deptSalaryMap.set(d.name, 0));
+
+      contracts.forEach((c) => {
+        if (c.status === 'ACTIVE' || !c.status) {
+          const deptName = empDeptMap.get(c.employeeId) || 'General';
+          const current = deptSalaryMap.get(deptName) || 0;
+          deptSalaryMap.set(deptName, current + Number(c.salary || c.wage || 0));
+        }
+      });
+
+      const salaryByDepartment = Array.from(deptSalaryMap.entries())
+        .map(([label, value]) => ({ label, value }))
+        .filter((item) => item.value > 0);
+
+      // Real payroll trend from payruns sorted by periodStart
+      const sortedPayruns = [...payruns].sort((a, b) => (a.periodStart || '').localeCompare(b.periodStart || ''));
+      const payrollTrend = sortedPayruns.map((p) => {
+        let label = p.name || 'Period';
+        if (p.periodStart) {
+          const d = new Date(p.periodStart);
+          if (!isNaN(d.getTime())) {
+            label = d.toLocaleDateString('default', { month: 'short', year: '2-digit' });
+          }
+        }
         return {
-          label: d.name,
-          value: count > 0 ? count * 6500 : 5000,
+          label,
+          value: Number(p.totalGross || p.totalNet || 0),
         };
       });
 
+      // Real recent payruns
       const recentPayrunsMapped = payruns.slice(0, 5).map((p) => ({
         id: p.id,
-        name: p.name || `Payrun ${p.periodStart} – ${p.periodEnd}`,
-        period: `${p.periodStart} – ${p.periodEnd}`,
-        employeesCount: p.payslipCount || p.employeeCount || employees.length,
+        name: p.name || `Payrun ${p.periodStart || ''} – ${p.periodEnd || ''}`,
+        period: `${p.periodStart || ''} – ${p.periodEnd || ''}`,
+        employeesCount: p.payslipCount || (Array.isArray(p.payslips) ? p.payslips.length : 0),
         netAmount: Number(p.totalNet || p.netAmount || 0),
-        status: p.status || 'PAID',
+        status: p.status || 'DRAFT',
       }));
 
+      // Real pending approvals
       const pendingApprovalsMapped = pendingLeaves.slice(0, 5).map((l) => ({
         id: l.id,
-        employee: l.employeeName || (l.employee ? `${l.employee.firstName} ${l.employee.lastName}` : 'Employee'),
-        department: l.departmentName || 'General',
+        employee: l.employeeName || (l.employee ? `${l.employee.firstName || ''} ${l.employee.lastName || ''}`.trim() : 'Employee'),
+        department: l.departmentName || (l.employee ? l.employee.departmentName : '') || 'General',
         type: l.timeOffTypeName || (l.timeOffType ? l.timeOffType.name : 'Leave'),
-        dates: `${l.startDate} – ${l.endDate} (${l.duration || 1}d)`,
-        submittedAt: 'Recently',
+        dates: `${l.startDate || ''} – ${l.endDate || ''} (${l.duration || l.durationDays || 1}d)`,
+        submittedAt: l.createdAt ? new Date(l.createdAt).toLocaleDateString() : 'Pending review',
       }));
+
+      // Real attendance rate
+      const presentCount = attendance.filter((a) => a.status === 'PRESENT').length;
+      const attendanceHealth = totalEmployees > 0 && attendance.length > 0
+        ? Math.min(100, Math.round((presentCount / totalEmployees) * 100))
+        : 0;
 
       return {
         totalEmployees,
         activeEmployees,
-        netSalaryPaid: totalNetPaid || 12862.5,
-        payslipsIssued: employees.length,
+        netSalaryPaid: totalNetPaid,
+        payslipsIssued: totalPayslipsIssued,
         pendingLeaves: pendingLeaves.length,
-        attendanceHealth: attendance.length > 0 ? Math.min(100, Math.round((attendance.length / totalEmployees) * 100)) : 95.0,
-        payrollTrend: [
-          { label: 'Apr', value: totalGrossPaid ? Math.round(totalGrossPaid * 0.85) : 14200 },
-          { label: 'May', value: totalGrossPaid ? Math.round(totalGrossPaid * 0.88) : 14800 },
-          { label: 'Jun', value: totalGrossPaid ? Math.round(totalGrossPaid * 0.91) : 15100 },
-          { label: 'Jul', value: totalGrossPaid ? Math.round(totalGrossPaid * 0.94) : 15400 },
-          { label: 'Aug', value: totalGrossPaid ? Math.round(totalGrossPaid * 0.97) : 15600 },
-          { label: 'Sep', value: totalGrossPaid || 16200 },
-        ],
-        salaryByDepartment: deptSalary.length > 0 ? deptSalary : [
-          { label: 'Engineering', value: 13500 },
-          { label: 'Human Resources', value: 8200 },
-          { label: 'Sales', value: 5400 },
-          { label: 'Marketing', value: 4800 },
-        ],
+        attendanceHealth,
+        payrollTrend,
+        salaryByDepartment,
         recentPayruns: recentPayrunsMapped,
         pendingApprovals: pendingApprovalsMapped,
-        warnings: [
-          {
-            id: 'w-1',
-            title: `${totalEmployees} Employees Loaded Live from PostgreSQL`,
-            desc: `Connected to hr_db (port 5433). All actions sync directly to the database.`,
-            type: 'info',
-          },
-        ],
+        warnings: [],
       };
     } catch {
       return {
-        totalEmployees: 5,
-        activeEmployees: 5,
-        netSalaryPaid: 12862.5,
-        payslipsIssued: 5,
-        pendingLeaves: 1,
-        attendanceHealth: 95.0,
+        totalEmployees: 0,
+        activeEmployees: 0,
+        netSalaryPaid: 0,
+        payslipsIssued: 0,
+        pendingLeaves: 0,
+        attendanceHealth: 0,
         payrollTrend: [],
         salaryByDepartment: [],
         recentPayruns: [],

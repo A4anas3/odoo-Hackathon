@@ -9,6 +9,7 @@ import java.util.UUID;
 
 @Repository
 public interface TimeOffRequestRepository extends JpaRepository<TimeOffRequest, UUID> {
+    List<TimeOffRequest> findByEmployeeId(UUID employeeId);
     List<TimeOffRequest> findByEmployeeIdOrderByStartDateDesc(UUID employeeId);
     List<TimeOffRequest> findByStatus(String status);
 }

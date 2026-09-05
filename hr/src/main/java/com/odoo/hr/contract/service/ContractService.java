@@ -35,8 +35,17 @@ public class ContractService {
 
     @Transactional
     public ContractResponse createContract(ContractRequest request) {
+        Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
+        if (currentEmployee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(currentEmployee.getStatus())) {
+            throw new ConflictException("Terminated or inactive employees cannot manage contracts.");
+        }
+
         Employee employee = employeeRepository.findById(request.getEmployeeId())
                 .orElseThrow(() -> new ResourceNotFoundException("Employee not found: " + request.getEmployeeId()));
+
+        if (employee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(employee.getStatus())) {
+            throw new ConflictException("Cannot create a contract for a terminated or inactive employee.");
+        }
 
         String status = request.getStatus() != null ? request.getStatus().trim().toUpperCase() : "DRAFT";
 
@@ -98,6 +107,11 @@ public class ContractService {
 
     @Transactional
     public ContractResponse updateContractStatus(UUID id, String newStatus) {
+        Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
+        if (currentEmployee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(currentEmployee.getStatus())) {
+            throw new ConflictException("Terminated or inactive employees cannot manage contracts.");
+        }
+
         Contract contract = contractRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Contract not found: " + id));
 

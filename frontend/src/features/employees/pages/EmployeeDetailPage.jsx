@@ -8,7 +8,7 @@ import { Tabs } from '../../../components/ui/Tabs';
 import { Button } from '../../../components/ui/Button';
 import { Spinner } from '../../../components/loading/Spinner';
 import { ErrorState } from '../../../components/error/ErrorState';
-import { useEmployee } from '../hooks/useEmployees';
+import { useEmployee, useUpdateEmployee } from '../hooks/useEmployees';
 import { formatDate, formatCurrency } from '../../../lib/utils/formatters';
 import { ROUTES } from '../../../config/routes';
 import {
@@ -24,6 +24,8 @@ import {
   Coins,
   Edit2,
   Shield,
+  UserX,
+  UserCheck,
 } from 'lucide-react';
 
 export function EmployeeDetailPage() {
@@ -32,6 +34,15 @@ export function EmployeeDetailPage() {
   const [activeTab, setActiveTab] = useState('overview');
 
   const { data: employee, isLoading, isError, refetch } = useEmployee(id);
+  const updateMutation = useUpdateEmployee();
+
+  const handleStatusChange = async (newStatus) => {
+    await updateMutation.mutateAsync({
+      id: employee.id,
+      data: { status: newStatus },
+    });
+    refetch();
+  };
 
   if (isLoading) {
     return (
@@ -63,16 +74,62 @@ export function EmployeeDetailPage() {
       title={`${employee.firstName} ${employee.lastName}`}
       description={`Code: ${employee.employeeCode || 'EMP-000'} • Joined ${formatDate(employee.joiningDate)}`}
       actions={
-        <Button
-          variant="secondary"
-          size="sm"
-          icon={Edit2}
-          onClick={() => navigate(ROUTES.EMPLOYEE_EDIT(employee.id))}
-        >
-          Edit Profile
-        </Button>
+        <div className="flex items-center gap-2">
+          {employee.status === 'ACTIVE' ? (
+            <Button
+              variant="danger"
+              size="sm"
+              icon={UserX}
+              isLoading={updateMutation.isPending}
+              onClick={() => handleStatusChange('INACTIVE')}
+            >
+              Deactivate
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              size="sm"
+              icon={UserCheck}
+              isLoading={updateMutation.isPending}
+              onClick={() => handleStatusChange('ACTIVE')}
+            >
+              Reactivate
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={Edit2}
+            onClick={() => navigate(ROUTES.EMPLOYEE_EDIT(employee.id))}
+          >
+            Edit Profile
+          </Button>
+        </div>
       }
     >
+      {/* Non-Active Status Warning Banner */}
+      {employee.status !== 'ACTIVE' && (
+        <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <Shield className="w-5 h-5 text-amber-600 shrink-0" />
+            <div>
+              <span className="font-semibold text-amber-900 block">Employment Status: {employee.status}</span>
+              <p className="mt-0.5 text-amber-700">
+                This employee cannot punch attendance shifts, apply for time off, or be included in monthly pay runs.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="secondary"
+            size="xs"
+            onClick={() => handleStatusChange('ACTIVE')}
+            isLoading={updateMutation.isPending}
+          >
+            Make Active
+          </Button>
+        </div>
+      )}
+
       {/* Top Profile Summary Header Card */}
       <Card className="border border-slate-200/90 shadow-2xs">
         <CardContent className="p-6">

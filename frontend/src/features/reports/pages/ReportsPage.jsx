@@ -5,13 +5,18 @@ import { Tabs } from '../../../components/ui/Tabs';
 import { BarChart } from '../../../components/charts/BarChart';
 import { LineChart } from '../../../components/charts/LineChart';
 import { Button } from '../../../components/ui/Button';
-import { Select } from '../../../components/form/Select';
+import { useQuery } from '@tanstack/react-query';
+import { contractApi } from '../../contracts/api/contractApi';
+import { departmentApi } from '../../departments/api/departmentApi';
+import { payrunApi } from '../../payroll/payruns/api/payrunApi';
+import { attendanceApi } from '../../attendance/api/attendanceApi';
+import { timeoffApi } from '../../timeoff/api/timeoffApi';
 import { formatCurrency } from '../../../lib/utils/formatters';
-import { BarChart3, Clock, CalendarDays, Download, Filter } from 'lucide-react';
+import { BarChart3, Clock, CalendarDays, Download, Inbox } from 'lucide-react';
+import { Spinner } from '../../../components/loading/Spinner';
 
 export function ReportsPage() {
   const [activeTab, setActiveTab] = useState('payroll');
-  const [department, setDepartment] = useState('ALL');
 
   const tabs = [
     { id: 'payroll', label: 'Payroll Expenditure', icon: BarChart3 },
@@ -19,100 +24,198 @@ export function ReportsPage() {
     { id: 'leave', label: 'Leave Utilization', icon: CalendarDays },
   ];
 
-  const payrollDeptData = [
-    { label: 'Engineering', value: 680000 },
-    { label: 'Sales', value: 340000 },
-    { label: 'Management', value: 240000 },
-    { label: 'Finance', value: 162400 },
-    { label: 'HR', value: 160000 },
-  ];
+  // 1. Contracts & Departments for Payroll Cost by Department
+  const { data: contracts = [], isLoading: contractsLoading } = useQuery({
+    queryKey: ['contracts', 'reports'],
+    queryFn: () => contractApi.getContracts(),
+  });
 
-  const attendanceMonthlyTrend = [
-    { label: 'Apr', value: 95.2 },
-    { label: 'May', value: 96.0 },
-    { label: 'Jun', value: 94.8 },
-    { label: 'Jul', value: 95.6 },
-    { label: 'Aug', value: 96.1 },
-    { label: 'Sep', value: 96.4 },
-  ];
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments', 'reports'],
+    queryFn: () => departmentApi.getAllDepartments(),
+  });
 
-  const leaveDeptData = [
-    { label: 'Engineering', value: 42 },
-    { label: 'Sales', value: 31 },
-    { label: 'Management', value: 8 },
-    { label: 'Finance', value: 14 },
-    { label: 'HR', value: 11 },
-  ];
+  // 2. Payruns for Monthly Spend Trend
+  const { data: payruns = [], isLoading: payrunsLoading } = useQuery({
+    queryKey: ['payruns', 'reports'],
+    queryFn: () => payrunApi.getAllPayruns(),
+  });
+
+  // 3. Attendance for punctuality / attendance health
+  const { data: attendance = [], isLoading: attendanceLoading } = useQuery({
+    queryKey: ['attendance', 'reports'],
+    queryFn: () => attendanceApi.getAllAttendance(),
+  });
+
+  // 4. Time Off requests for leave utilization by department
+  const { data: leaves = [], isLoading: leavesLoading } = useQuery({
+    queryKey: ['timeoff', 'reports'],
+    queryFn: () => timeoffApi.getAllRequests(),
+  });
+
+  // Calculate Real Payroll by Department
+  const deptCostMap = new Map();
+  departments.forEach((d) => deptCostMap.set(d.name, 0));
+
+  contracts.forEach((c) => {
+    if (c.status === 'ACTIVE' || !c.status) {
+      const dept = c.departmentName || c.employee?.departmentName || 'General';
+      const wage = Number(c.salary || c.wage || 0);
+      deptCostMap.set(dept, (deptCostMap.get(dept) || 0) + wage);
+    }
+  });
+
+  const payrollDeptData = Array.from(deptCostMap.entries())
+    .map(([label, value]) => ({ label, value }))
+    .filter((item) => item.value > 0);
+
+  // Calculate Real Monthly Spend Trend from Payruns
+  const sortedPayruns = [...payruns].sort((a, b) => (a.periodStart || '').localeCompare(b.periodStart || ''));
+  const monthlySpendTrend = sortedPayruns.map((p) => {
+    let label = p.name || 'Period';
+    if (p.periodStart) {
+      const d = new Date(p.periodStart);
+      if (!isNaN(d.getTime())) {
+        label = d.toLocaleDateString('default', { month: 'short', year: '2-digit' });
+      }
+    }
+    return {
+      label,
+      value: Number(p.totalNet || p.netAmount || p.totalGross || 0),
+    };
+  });
+
+  // Calculate Real Leave Count by Department
+  const leaveDeptMap = new Map();
+  leaves.forEach((l) => {
+    const dept = l.departmentName || l.employee?.departmentName || 'General';
+    const count = Number(l.duration || l.durationDays || 1);
+    leaveDeptMap.set(dept, (leaveDeptMap.get(dept) || 0) + count);
+  });
+
+  const leaveDeptData = Array.from(leaveDeptMap.entries())
+    .map(([label, value]) => ({ label, value }))
+    .filter((item) => item.value > 0);
+
+  // Calculate Attendance Punctuality Trend
+  const attMonthMap = new Map();
+  attendance.forEach((a) => {
+    const dateStr = a.attendanceDate || a.date;
+    if (dateStr) {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        const monthKey = d.toLocaleDateString('default', { month: 'short' });
+        if (!attMonthMap.has(monthKey)) {
+          attMonthMap.set(monthKey, { present: 0, total: 0 });
+        }
+        const curr = attMonthMap.get(monthKey);
+        curr.total += 1;
+        if (a.status === 'PRESENT' || a.status === 'OVERTIME') {
+          curr.present += 1;
+        }
+      }
+    }
+  });
+
+  const attendanceMonthlyTrend = Array.from(attMonthMap.entries()).map(([label, val]) => ({
+    label,
+    value: val.total > 0 ? Math.round((val.present / val.total) * 100) : 0,
+  }));
+
+  const isLoading = contractsLoading || payrunsLoading || attendanceLoading || leavesLoading;
 
   return (
     <PageContainer
       title="HR Analytics & Executive Reports"
       description="Cross-department operational reporting, salary trends, and compliance metrics."
       actions={
-        <Button variant="secondary" size="sm" icon={Download}>
-          Export PDF Report
+        <Button variant="secondary" size="sm" icon={Download} onClick={() => window.print()}>
+          Export Report
         </Button>
       }
     >
       <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
 
-      {activeTab === 'payroll' && (
+      {isLoading && (
+        <div className="py-20 flex justify-center">
+          <Spinner size="lg" />
+        </div>
+      )}
+
+      {!isLoading && activeTab === 'payroll' && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>
               <CardHeader
                 title="Payroll Cost by Department"
-                subtitle="Aggregated gross compensation per division"
+                subtitle="Aggregated active contract gross compensation per division"
               />
               <CardContent className="pt-2">
-                <BarChart data={payrollDeptData} height={200} isCurrency={true} />
+                {payrollDeptData.length > 0 ? (
+                  <BarChart data={payrollDeptData} height={200} isCurrency={true} />
+                ) : (
+                  <div className="py-12 text-center text-slate-400 text-xs">
+                    <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-1 stroke-1" />
+                    No active contract salary data recorded for departments.
+                  </div>
+                )}
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader
                 title="Historical Monthly Spend"
-                subtitle="6-month trend of net salary disbursements"
+                subtitle="Trend of net salary disbursements across finalized payruns"
               />
               <CardContent className="pt-2">
-                <LineChart
-                  data={[
-                    { label: 'Apr', value: 1420000 },
-                    { label: 'May', value: 1480000 },
-                    { label: 'Jun', value: 1510000 },
-                    { label: 'Jul', value: 1540000 },
-                    { label: 'Aug', value: 1560000 },
-                    { label: 'Sep', value: 1582400 },
-                  ]}
-                  height={200}
-                  isCurrency={true}
-                />
+                {monthlySpendTrend.length > 0 ? (
+                  <LineChart data={monthlySpendTrend} height={200} isCurrency={true} />
+                ) : (
+                  <div className="py-12 text-center text-slate-400 text-xs">
+                    <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-1 stroke-1" />
+                    No historical payrun disbursement cycles recorded.
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
         </div>
       )}
 
-      {activeTab === 'attendance' && (
+      {!isLoading && activeTab === 'attendance' && (
         <Card>
           <CardHeader
             title="Monthly Attendance & Punctuality Index (%)"
             subtitle="Percentage of shifts completed on schedule without unexcused tardiness"
           />
           <CardContent className="pt-2">
-            <LineChart data={attendanceMonthlyTrend} height={220} isCurrency={false} />
+            {attendanceMonthlyTrend.length > 0 ? (
+              <LineChart data={attendanceMonthlyTrend} height={240} />
+            ) : (
+              <div className="py-16 text-center text-slate-400 text-xs">
+                <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-1 stroke-1" />
+                No attendance punch logs available to calculate punctuality index.
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
 
-      {activeTab === 'leave' && (
+      {!isLoading && activeTab === 'leave' && (
         <Card>
           <CardHeader
-            title="Leave Days Taken by Department (YTD)"
-            subtitle="Total approved vacation, sick, and personal days"
+            title="Days Taken by Department"
+            subtitle="Cumulative time off days consumed by department staff"
           />
           <CardContent className="pt-2">
-            <BarChart data={leaveDeptData} height={220} isCurrency={false} />
+            {leaveDeptData.length > 0 ? (
+              <BarChart data={leaveDeptData} height={240} />
+            ) : (
+              <div className="py-16 text-center text-slate-400 text-xs">
+                <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-1 stroke-1" />
+                No approved leave request records found.
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

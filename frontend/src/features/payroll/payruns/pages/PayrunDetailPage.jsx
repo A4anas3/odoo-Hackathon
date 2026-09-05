@@ -8,16 +8,21 @@ import { useQuery } from '@tanstack/react-query';
 import { payrunApi } from '../api/payrunApi';
 import { formatCurrency, formatDate } from '@/lib/utils/formatters';
 import { ROUTES } from '@/config/routes';
-import { ArrowLeft, CheckCircle2, Download, Mail } from 'lucide-react';
+import { ArrowLeft, Download, Inbox } from 'lucide-react';
 
 export function PayrunDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const { data: payrun = {} } = useQuery({
+  const { data: payrun = {}, isLoading } = useQuery({
     queryKey: ['payroll', 'payrun', id],
     queryFn: () => payrunApi.getPayrunById(id),
   });
+
+  const enrolledPayslips = Array.isArray(payrun.payslips) ? payrun.payslips : [];
+  const staffCount = enrolledPayslips.length || payrun.employeeCount || 0;
+  const grossTotal = payrun.grossAmount ?? payrun.totalGross ?? 0;
+  const netTotal = payrun.netAmount ?? payrun.totalNet ?? 0;
 
   return (
     <PageContainer
@@ -38,25 +43,25 @@ export function PayrunDetailPage() {
         <Card className="p-4 text-center">
           <span className="text-[10px] text-slate-400 uppercase font-semibold block">Batch Status</span>
           <div className="mt-1 flex justify-center">
-            <StatusBadge status={payrun.status || 'PAID'} />
+            <StatusBadge status={payrun.status || 'DRAFT'} />
           </div>
         </Card>
         <Card className="p-4 text-center">
           <span className="text-[10px] text-slate-400 uppercase font-semibold block">Total Enrolled</span>
           <span className="text-xl font-bold text-slate-900 mt-1 block">
-            {payrun.employeeCount || 236} staff
+            {staffCount} staff
           </span>
         </Card>
         <Card className="p-4 text-center">
           <span className="text-[10px] text-slate-400 uppercase font-semibold block">Total Gross Wage</span>
           <span className="text-xl font-bold text-slate-900 mt-1 block">
-            {formatCurrency(payrun.grossAmount || 1860000)}
+            {formatCurrency(grossTotal)}
           </span>
         </Card>
         <Card className="p-4 text-center bg-[#714B67]/5 border-[#714B67]/20">
           <span className="text-[10px] text-[#714B67] uppercase font-semibold block">Net Disbursed</span>
           <span className="text-xl font-bold text-[#714B67] mt-1 block">
-            {formatCurrency(payrun.netAmount || 1582400)}
+            {formatCurrency(netTotal)}
           </span>
         </Card>
       </div>
@@ -78,33 +83,38 @@ export function PayrunDetailPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                <tr>
-                  <td className="p-3 font-semibold text-slate-900">Sarah Connor</td>
-                  <td className="p-3 text-slate-500">Engineering</td>
-                  <td className="p-3">{formatCurrency(3250)}</td>
-                  <td className="p-3">{formatCurrency(6500)}</td>
-                  <td className="p-3 text-rose-600">-{formatCurrency(650)}</td>
-                  <td className="p-3 font-bold text-emerald-700">{formatCurrency(5850)}</td>
-                  <td className="p-3 text-center"><StatusBadge status="PAID" /></td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-semibold text-slate-900">Michael Scott</td>
-                  <td className="p-3 text-slate-500">Management</td>
-                  <td className="p-3">{formatCurrency(4100)}</td>
-                  <td className="p-3">{formatCurrency(8200)}</td>
-                  <td className="p-3 text-rose-600">-{formatCurrency(820)}</td>
-                  <td className="p-3 font-bold text-emerald-700">{formatCurrency(7380)}</td>
-                  <td className="p-3 text-center"><StatusBadge status="PAID" /></td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-semibold text-slate-900">Dwight Schrute</td>
-                  <td className="p-3 text-slate-500">Sales</td>
-                  <td className="p-3">{formatCurrency(2700)}</td>
-                  <td className="p-3">{formatCurrency(5400)}</td>
-                  <td className="p-3 text-rose-600">-{formatCurrency(540)}</td>
-                  <td className="p-3 font-bold text-emerald-700">{formatCurrency(4860)}</td>
-                  <td className="p-3 text-center"><StatusBadge status="PAID" /></td>
-                </tr>
+                {enrolledPayslips.length > 0 ? (
+                  enrolledPayslips.map((slip) => {
+                    const name = slip.employeeName || slip.employee?.name || 'Staff';
+                    const dept = slip.departmentName || slip.employee?.departmentName || '—';
+                    const basic = slip.basicSalary || slip.wage || 0;
+                    const gross = slip.grossSalary || slip.grossAmount || 0;
+                    const ded = slip.totalDeductions || slip.deductionsAmount || 0;
+                    const net = slip.netSalary || slip.netAmount || 0;
+                    return (
+                      <tr
+                        key={slip.id}
+                        className="hover:bg-slate-50/70 cursor-pointer"
+                        onClick={() => navigate(ROUTES.PAYSLIP_DETAIL(slip.id))}
+                      >
+                        <td className="p-3 font-semibold text-slate-900">{name}</td>
+                        <td className="p-3 text-slate-500">{dept}</td>
+                        <td className="p-3">{formatCurrency(basic)}</td>
+                        <td className="p-3">{formatCurrency(gross)}</td>
+                        <td className="p-3 text-rose-600">-{formatCurrency(ded)}</td>
+                        <td className="p-3 font-bold text-emerald-700">{formatCurrency(net)}</td>
+                        <td className="p-3 text-center"><StatusBadge status={slip.status || 'PAID'} /></td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-400">
+                      <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-1 stroke-1" />
+                      No individual payslips enrolled for this payrun batch.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

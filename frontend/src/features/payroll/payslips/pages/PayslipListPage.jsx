@@ -5,26 +5,31 @@ import { DataTable } from '@/components/table/DataTable';
 import { StatusBadge } from '@/components/badge/StatusBadge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/form/Input';
-import { Select } from '@/components/form/Select';
-import { payslipApi, DEFAULT_PAYSLIPS } from '../api/payslipApi';
+import { payslipApi } from '../api/payslipApi';
+import { useCurrentUser } from '@/hooks/auth/useCurrentUser';
+import { PERMISSIONS } from '@/config/permissions';
 import { useQuery } from '@tanstack/react-query';
 import { formatCurrency } from '@/lib/utils/formatters';
 import { ROUTES } from '@/config/routes';
-import { Receipt, Search, Eye, Download } from 'lucide-react';
+import { Receipt, Search, Eye } from 'lucide-react';
 
 export function PayslipListPage() {
   const navigate = useNavigate();
+  const { can } = useCurrentUser();
+  const isAdminOrPayroll = can(PERMISSIONS.CAN_RUN_PAYROLL);
+
   const [search, setSearch] = useState('');
-  const [periodFilter, setPeriodFilter] = useState('ALL');
 
   const { data: payslips = [], isLoading } = useQuery({
-    queryKey: ['payroll', 'payslips'],
-    queryFn: () => payslipApi.getMyPayslips(),
+    queryKey: ['payroll', 'payslips', isAdminOrPayroll],
+    queryFn: () => (isAdminOrPayroll ? payslipApi.getAllPayslips() : payslipApi.getMyPayslips()),
   });
 
   const filtered = payslips.filter((p) => {
-    if (search && !p.employee?.name?.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
+    if (!search) return true;
+    const name = (p.employeeName || p.employee?.name || '').toLowerCase();
+    const slip = (p.slipNumber || '').toLowerCase();
+    return name.includes(search.toLowerCase()) || slip.includes(search.toLowerCase());
   });
 
   const columns = [
@@ -32,58 +37,70 @@ export function PayslipListPage() {
       header: 'Slip Number',
       key: 'slipNumber',
       render: (num) => (
-        <span className="font-mono font-semibold text-slate-800 text-xs">{num}</span>
+        <span className="font-mono font-semibold text-slate-800 text-xs">{num || '—'}</span>
       ),
     },
-    {
-      header: 'Employee',
-      key: 'employee',
-      render: (emp) => (
-        <div>
-          <span className="font-semibold text-slate-900 block leading-tight">{emp?.name}</span>
-          <span className="text-[10px] text-slate-400 font-mono">{emp?.code} • {emp?.dept}</span>
-        </div>
-      ),
-    },
+    ...(isAdminOrPayroll
+      ? [
+          {
+            header: 'Employee',
+            key: 'employee',
+            render: (_, row) => {
+              const name = row.employeeName || row.employee?.name || 'Staff';
+              const code = row.employeeCode || row.employee?.code || '—';
+              const dept = row.departmentName || row.employee?.dept || '';
+              return (
+                <div>
+                  <span className="font-semibold text-slate-900 block leading-tight">{name}</span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {code} {dept ? `• ${dept}` : ''}
+                  </span>
+                </div>
+              );
+            },
+          },
+        ]
+      : []),
     {
       header: 'Period',
       key: 'period',
-      render: (period) => <span className="font-medium text-slate-700">{period}</span>,
+      render: (period, row) => <span className="font-medium text-slate-700">{period || `${row.periodStart || ''} – ${row.periodEnd || ''}`}</span>,
     },
     {
       header: 'Gross Earnings',
       key: 'grossAmount',
-      render: (amount) => <span className="font-semibold text-slate-800">{formatCurrency(amount)}</span>,
+      render: (amount, row) => <span className="font-semibold text-slate-800">{formatCurrency(amount || row.grossSalary || 0)}</span>,
     },
     {
       header: 'Deductions',
       key: 'deductionsAmount',
-      render: (amount) => <span className="font-semibold text-rose-600">-{formatCurrency(amount)}</span>,
+      render: (amount, row) => <span className="text-rose-600 font-medium">-{formatCurrency(amount || row.totalDeductions || 0)}</span>,
     },
     {
-      header: 'Net Payout',
+      header: 'Net Pay',
       key: 'netAmount',
-      render: (amount) => (
-        <span className="font-bold text-emerald-700 text-xs">{formatCurrency(amount)}</span>
+      render: (amount, row) => (
+        <span className="font-bold text-emerald-700 font-mono">
+          {formatCurrency(amount || row.netSalary || 0)}
+        </span>
       ),
     },
     {
       header: 'Status',
       key: 'status',
-      render: (status) => <StatusBadge status={status} />,
+      render: (status) => <StatusBadge status={status || 'PAID'} />,
     },
     {
       header: 'Actions',
       key: 'actions',
-      align: 'right',
       render: (_, row) => (
         <Button
           variant="ghost"
           size="xs"
+          icon={Eye}
           onClick={() => navigate(ROUTES.PAYSLIP_DETAIL(row.id))}
-          title="Inspect Payslip"
         >
-          <Eye className="w-3.5 h-3.5 text-slate-500" />
+          View
         </Button>
       ),
     },
@@ -91,19 +108,24 @@ export function PayslipListPage() {
 
   return (
     <PageContainer
-      title="Employee Payslips"
-      description="View and download individualized payroll calculation breakdowns and tax receipts."
+      title={isAdminOrPayroll ? 'All Issued Payslips' : 'My Payslips'}
+      description={
+        isAdminOrPayroll
+          ? 'Browse and audit all monthly payroll statements issued to staff.'
+          : 'Access and download your personal salary compensation records.'
+      }
     >
       <div className="bg-white p-3 rounded-lg border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
-        <div className="flex flex-1 items-center gap-2.5 w-full sm:w-auto">
-          <div className="w-full sm:w-64">
-            <Input
-              placeholder="Search by employee name..."
-              icon={Search}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+        <div className="w-full sm:w-72">
+          <Input
+            placeholder="Search payslips..."
+            icon={Search}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="text-xs text-slate-500 font-medium">
+          Showing {filtered.length} payslip{filtered.length !== 1 ? 's' : ''}
         </div>
       </div>
 
@@ -111,7 +133,12 @@ export function PayslipListPage() {
         columns={columns}
         data={filtered}
         isLoading={isLoading}
-        onRowClick={(row) => navigate(ROUTES.PAYSLIP_DETAIL(row.id))}
+        emptyTitle="No payslips available"
+        emptyDescription={
+          isAdminOrPayroll
+            ? 'No payslips have been generated in this system yet.'
+            : 'No payslips have been generated for your employee profile yet.'
+        }
       />
     </PageContainer>
   );

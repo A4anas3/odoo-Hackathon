@@ -6,7 +6,7 @@ import { Button } from '../../../components/ui/Button';
 import { Avatar } from '../../../components/ui/Avatar';
 import { Input } from '../../../components/form/Input';
 import { Select } from '../../../components/form/Select';
-import { contractApi, DEFAULT_CONTRACTS } from '../api/contractApi';
+import { contractApi } from '../api/contractApi';
 import { useQuery } from '@tanstack/react-query';
 import { formatDate, formatCurrency } from '../../../lib/utils/formatters';
 import { ROUTES } from '../../../config/routes';

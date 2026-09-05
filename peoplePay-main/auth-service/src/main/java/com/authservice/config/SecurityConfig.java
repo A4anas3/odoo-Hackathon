@@ -39,7 +39,8 @@ public class SecurityConfig {
             "/auth/forgot-password",
             "/auth/reset-password",
             "/actuator/health",
-            "/actuator/info"
+            "/actuator/info",
+            "/internal/**"
     };
 
     @Bean

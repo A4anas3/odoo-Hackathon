@@ -52,6 +52,11 @@ public class PayrollService {
             throw new IllegalArgumentException("Period end date cannot be before period start date");
         }
 
+        Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
+        if (currentEmployee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(currentEmployee.getStatus())) {
+            throw new ConflictException("Terminated or inactive employees cannot generate payroll payruns.");
+        }
+
         String currentJwtSub = currentEmployeeService.getAuthenticatedAuthProviderUserId();
 
         SalaryStructure structure = null;
@@ -211,6 +216,11 @@ public class PayrollService {
 
     @Transactional
     public PayrunResponse validatePayrun(UUID payrunId) {
+        Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
+        if (currentEmployee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(currentEmployee.getStatus())) {
+            throw new ConflictException("Terminated or inactive employees cannot validate payroll payruns.");
+        }
+
         Payrun payrun = payrunRepository.findById(payrunId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payrun not found with id: " + payrunId));
 

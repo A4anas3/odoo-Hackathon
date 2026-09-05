@@ -39,7 +39,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
-import java.util.List;
+import java.util.*;
 
 @Slf4j
 @Component
@@ -62,321 +62,98 @@ public class DataInitializer implements CommandLineRunner {
     private final PayslipLineRepository payslipLineRepository;
 
     @Override
-    @Transactional
     public void run(String... args) {
-        if (departmentRepository.count() > 0) {
-            log.info("Database already contains data; skipping seed initialization.");
-            return;
-        }
+        log.info("Checking HRMS database state for seed initialization...");
+        seedAllData();
+    }
 
-        log.info("Seeding realistic enterprise HRMS data into PostgreSQL hr_db...");
+    @Transactional
+    public Map<String, Object> seedAllData() {
+        log.info("Executing comprehensive idempotent HRMS database seeding...");
 
         // 1. Departments
-        Department deptEng = departmentRepository.save(Department.builder()
-                .name("Engineering")
-                .description("Software architecture, web applications, and backend infrastructure")
-                .status("ACTIVE")
-                .build());
-
-        Department deptHr = departmentRepository.save(Department.builder()
-                .name("Human Resources")
-                .description("Talent acquisition, payroll management, and people operations")
-                .status("ACTIVE")
-                .build());
-
-        Department deptSales = departmentRepository.save(Department.builder()
-                .name("Sales")
-                .description("Global revenue, enterprise sales, and customer relations")
-                .status("ACTIVE")
-                .build());
-
-        Department deptMkt = departmentRepository.save(Department.builder()
-                .name("Marketing")
-                .description("Brand positioning, performance marketing, and digital outreach")
-                .status("ACTIVE")
-                .build());
-
-        Department deptFin = departmentRepository.save(Department.builder()
-                .name("Finance")
-                .description("Corporate accounting, budgeting, and statutory compliance")
-                .status("ACTIVE")
-                .build());
+        Department deptEng = getOrCreateDepartment("Engineering", "Software architecture, web applications, and backend infrastructure");
+        Department deptHr = getOrCreateDepartment("Human Resources", "Talent acquisition, payroll management, and people operations");
+        Department deptSales = getOrCreateDepartment("Sales", "Global revenue, enterprise sales, and customer relations");
+        Department deptMkt = getOrCreateDepartment("Marketing", "Brand positioning, performance marketing, and digital outreach");
+        Department deptFin = getOrCreateDepartment("Finance", "Corporate accounting, budgeting, and statutory compliance");
 
         // 2. Job Positions
-        JobPosition jobDev = jobPositionRepository.save(JobPosition.builder()
-                .title("Senior Fullstack Engineer")
-                .department(deptEng)
-                .description("Builds scalable React webapps and Spring Boot microservices")
-                .status("ACTIVE")
-                .build());
-
-        JobPosition jobOps = jobPositionRepository.save(JobPosition.builder()
-                .title("DevOps & Cloud Architect")
-                .department(deptEng)
-                .description("Manages CI/CD pipelines, Docker, Kubernetes and PostgreSQL clusters")
-                .status("ACTIVE")
-                .build());
-
-        JobPosition jobHrDir = jobPositionRepository.save(JobPosition.builder()
-                .title("HR Director")
-                .department(deptHr)
-                .description("Leads company-wide human resource strategy and employee satisfaction")
-                .status("ACTIVE")
-                .build());
-
-        JobPosition jobSalesExec = jobPositionRepository.save(JobPosition.builder()
-                .title("Senior Account Executive")
-                .department(deptSales)
-                .description("Drives B2B enterprise software contracts and customer acquisition")
-                .status("ACTIVE")
-                .build());
-
-        JobPosition jobMktLead = jobPositionRepository.save(JobPosition.builder()
-                .title("Marketing Lead")
-                .department(deptMkt)
-                .description("Orchestrates brand campaigns, social media, and product launches")
-                .status("ACTIVE")
-                .build());
-
-        JobPosition jobFinCtrl = jobPositionRepository.save(JobPosition.builder()
-                .title("Financial Controller")
-                .department(deptFin)
-                .description("Supervises financial reporting, accounts ledger, and payroll disbursements")
-                .status("ACTIVE")
-                .build());
+        JobPosition jobDev = getOrCreateJobPosition("Senior Fullstack Engineer", deptEng, "Builds scalable React webapps and Spring Boot microservices");
+        JobPosition jobOps = getOrCreateJobPosition("DevOps & Cloud Architect", deptEng, "Manages CI/CD pipelines, Docker, Kubernetes and PostgreSQL clusters");
+        JobPosition jobQa = getOrCreateJobPosition("QA Automation Engineer", deptEng, "Designs test suites, automated integration testing, and quality assurance");
+        JobPosition jobHrDir = getOrCreateJobPosition("HR Director", deptHr, "Leads company-wide human resource strategy and employee satisfaction");
+        JobPosition jobSalesExec = getOrCreateJobPosition("Senior Account Executive", deptSales, "Drives B2B enterprise software contracts and customer acquisition");
+        JobPosition jobMktLead = getOrCreateJobPosition("Marketing Lead", deptMkt, "Orchestrates brand campaigns, social media, and product launches");
+        JobPosition jobFinCtrl = getOrCreateJobPosition("Financial Controller", deptFin, "Supervises financial reporting, accounts ledger, and payroll disbursements");
 
         // 3. Working Schedule
-        WorkingSchedule schedule40 = WorkingSchedule.builder()
-                .name("Standard 40h (Mon-Fri 09:00-18:00)")
-                .description("Standard full-time schedule with 1 hour lunch break")
-                .build();
-        schedule40 = workingScheduleRepository.save(schedule40);
-
-        String[] weekdays = {"MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"};
-        for (String day : weekdays) {
-            WorkingScheduleDay scheduleDay = WorkingScheduleDay.builder()
-                    .workingSchedule(schedule40)
-                    .weekday(day)
-                    .startTime(LocalTime.of(9, 0))
-                    .endTime(LocalTime.of(18, 0))
-                    .breakMinutes(60)
-                    .build();
-            schedule40.getDays().add(scheduleDay);
-        }
-        workingScheduleRepository.save(schedule40);
+        WorkingSchedule schedule40 = getOrCreateWorkingSchedule("Standard 40h (Mon-Fri 09:00-18:00)", "Standard full-time schedule with 1 hour lunch break");
 
         // 4. Salary Structures & Rules
-        SalaryStructure structRegular = salaryStructureRepository.save(SalaryStructure.builder()
-                .name("Regular Full-Time")
-                .description("Standard full-time salary package with basic, HRA, allowances, and tax deductions")
-                .status("ACTIVE")
-                .build());
+        SalaryStructure structRegular = getOrCreateSalaryStructure("Regular Full-Time", "Standard full-time salary package with basic, HRA, allowances, and tax deductions");
+        SalaryStructure structExec = getOrCreateSalaryStructure("Executive Management", "Executive compensation package with performance allowances");
+        SalaryStructure structSales = getOrCreateSalaryStructure("Sales Commission Base", "Base salary structure with commission incentives for sales team");
 
-        SalaryStructure structExec = salaryStructureRepository.save(SalaryStructure.builder()
-                .name("Executive Management")
-                .description("Executive compensation package with performance allowances")
-                .status("ACTIVE")
-                .build());
+        // Ensure Rules for structRegular
+        ensureSalaryRule(structRegular, "Basic Salary", "BASIC", 1, "BASIC", "PERCENTAGE", new BigDecimal("50.00"), "contract.wage * 0.50");
+        ensureSalaryRule(structRegular, "House Rent Allowance (HRA)", "HRA", 2, "ALW", "PERCENTAGE", new BigDecimal("25.00"), "contract.wage * 0.25");
+        ensureSalaryRule(structRegular, "Transport Conveyance", "TRANS", 3, "ALW", "FIXED", new BigDecimal("300.00"), "300");
+        ensureSalaryRule(structRegular, "Gross Salary", "GROSS", 4, "GROSS", "FORMULA", null, "BASIC + HRA + TRANS");
+        ensureSalaryRule(structRegular, "Income Tax Withholding (10%)", "TAX", 5, "DED", "PERCENTAGE", new BigDecimal("10.00"), "GROSS * 0.10");
+        ensureSalaryRule(structRegular, "Provident Fund (5%)", "PF", 6, "DED", "PERCENTAGE", new BigDecimal("5.00"), "BASIC * 0.05");
+        ensureSalaryRule(structRegular, "Net Pay", "NET", 7, "NET", "FORMULA", null, "GROSS - TAX - PF");
 
-        SalaryStructure structSales = salaryStructureRepository.save(SalaryStructure.builder()
-                .name("Sales Commission Base")
-                .description("Base salary structure with commission incentives for sales team")
-                .status("ACTIVE")
-                .build());
+        // 5. Employees (Mirrors 1-click Demo accounts)
+        Employee empSarah = getOrCreateEmployee(
+                "admin@company.com", "EMP-001", "Sarah", "Connor", "admin@company.com", "+1 555-0101",
+                LocalDate.of(1990, 5, 12), "742 Evergreen Terrace, Springfield", deptEng, jobDev,
+                LocalDate.of(2023, 1, 15), "US98234710293847", "Chase Bank", "CHASUS33"
+        );
 
-        // Salary Rules
-        SalaryRule ruleBasic = salaryRuleRepository.save(SalaryRule.builder()
-                .salaryStructure(structRegular)
-                .name("Basic Salary")
-                .code("BASIC")
-                .sequence(1)
-                .category("BASIC")
-                .calculationType("PERCENTAGE")
-                .percentage(new BigDecimal("50.00"))
-                .formula("contract.wage * 0.50")
-                .active(true)
-                .build());
+        Employee empMichael = getOrCreateEmployee(
+                "hrmanager@company.com", "EMP-002", "Michael", "Scott", "hrmanager@company.com", "+1 555-0102",
+                LocalDate.of(1982, 3, 15), "1725 Slough Avenue, Scranton, PA", deptHr, jobHrDir,
+                LocalDate.of(2022, 6, 1), "US12389471928374", "Wells Fargo", "WFBIUS6S"
+        );
 
-        SalaryRule ruleHra = salaryRuleRepository.save(SalaryRule.builder()
-                .salaryStructure(structRegular)
-                .name("House Rent Allowance (HRA)")
-                .code("HRA")
-                .sequence(2)
-                .category("ALW")
-                .calculationType("PERCENTAGE")
-                .percentage(new BigDecimal("25.00"))
-                .formula("contract.wage * 0.25")
-                .active(true)
-                .build());
+        Employee empDwight = getOrCreateEmployee(
+                "employee@company.com", "EMP-003", "Dwight", "Schrute", "employee@company.com", "+1 555-0103",
+                LocalDate.of(1985, 1, 20), "Schrute Farms, Honesdale, PA", deptSales, jobSalesExec,
+                LocalDate.of(2022, 9, 10), "US48291039482716", "PNC Bank", "PNCCUS33"
+        );
 
-        SalaryRule ruleTrans = salaryRuleRepository.save(SalaryRule.builder()
-                .salaryStructure(structRegular)
-                .name("Transport Conveyance")
-                .code("TRANS")
-                .sequence(3)
-                .category("ALW")
-                .calculationType("FIXED")
-                .value(new BigDecimal("300.00"))
-                .formula("300")
-                .active(true)
-                .build());
+        Employee empPam = getOrCreateEmployee(
+                "pam@company.com", "EMP-004", "Pam", "Beesly", "pam@company.com", "+1 555-0104",
+                LocalDate.of(1988, 3, 25), "42 Elm Street, Scranton, PA", deptMkt, jobMktLead,
+                LocalDate.of(2023, 3, 1), "US71928340192837", "Bank of America", "BOFAUS3N"
+        );
 
-        SalaryRule ruleGross = salaryRuleRepository.save(SalaryRule.builder()
-                .salaryStructure(structRegular)
-                .name("Gross Salary")
-                .code("GROSS")
-                .sequence(4)
-                .category("GROSS")
-                .calculationType("FORMULA")
-                .formula("BASIC + HRA + TRANS")
-                .active(true)
-                .build());
+        Employee empJim = getOrCreateEmployee(
+                "jim@company.com", "EMP-005", "Jim", "Halpert", "jim@company.com", "+1 555-0105",
+                LocalDate.of(1987, 10, 1), "12 Oak Avenue, Scranton, PA", deptEng, jobOps,
+                LocalDate.of(2023, 2, 15), "US62910384729102", "Citibank", "CITIUS33"
+        );
 
-        SalaryRule ruleTax = salaryRuleRepository.save(SalaryRule.builder()
-                .salaryStructure(structRegular)
-                .name("Income Tax Withholding (10%)")
-                .code("TAX")
-                .sequence(5)
-                .category("DED")
-                .calculationType("PERCENTAGE")
-                .percentage(new BigDecimal("10.00"))
-                .formula("GROSS * 0.10")
-                .active(true)
-                .build());
+        Employee empAlice = getOrCreateEmployee(
+                "alice@example.com", "EMP-006", "Alice", "Smith", "alice@example.com", "+1 555-0106",
+                LocalDate.of(1994, 8, 18), "221B Baker Street, London Tech Hub", deptEng, jobQa,
+                LocalDate.of(2023, 5, 20), "US88392019482910", "Barclays Bank", "BARCUS22"
+        );
 
-        SalaryRule rulePf = salaryRuleRepository.save(SalaryRule.builder()
-                .salaryStructure(structRegular)
-                .name("Provident Fund (5%)")
-                .code("PF")
-                .sequence(6)
-                .category("DED")
-                .calculationType("PERCENTAGE")
-                .percentage(new BigDecimal("5.00"))
-                .formula("BASIC * 0.05")
-                .active(true)
-                .build());
+        Employee empArthur = getOrCreateEmployee(
+                "admin@odoo.com", "EMP-007", "Arthur", "Dent", "admin@odoo.com", "+1 555-0107",
+                LocalDate.of(1986, 4, 11), "15 Cottington Lane, Cottington", deptEng, jobDev,
+                LocalDate.of(2022, 1, 10), "US33491029384918", "Chase Bank", "CHASUS33"
+        );
 
-        SalaryRule ruleNet = salaryRuleRepository.save(SalaryRule.builder()
-                .salaryStructure(structRegular)
-                .name("Net Pay")
-                .code("NET")
-                .sequence(7)
-                .category("NET")
-                .calculationType("FORMULA")
-                .formula("GROSS - TAX - PF")
-                .active(true)
-                .build());
+        Employee empRachel = getOrCreateEmployee(
+                "manager@odoo.com", "EMP-008", "Rachel", "Green", "manager@odoo.com", "+1 555-0108",
+                LocalDate.of(1991, 11, 24), "495 Grove Street, New York, NY", deptHr, jobHrDir,
+                LocalDate.of(2022, 8, 15), "US44819203948192", "Capital One", "CAPONE11"
+        );
 
-        // 5. Employees (Matches 1-click Demo credentials)
-        Employee empSarah = employeeRepository.save(Employee.builder()
-                .authProviderUserId("admin@company.com")
-                .employeeCode("EMP-001")
-                .firstName("Sarah")
-                .lastName("Connor")
-                .email("admin@company.com")
-                .phone("+1 555-0101")
-                .dateOfBirth(LocalDate.of(1990, 5, 12))
-                .address("742 Evergreen Terrace, Springfield")
-                .department(deptEng)
-                .jobPosition(jobDev)
-                .joiningDate(LocalDate.of(2023, 1, 15))
-                .employeeType("FULL_TIME")
-                .status("ACTIVE")
-                .bankAccountNo("US98234710293847")
-                .bankName("Chase Bank")
-                .ifscCode("CHASUS33")
-                .emergencyContactName("John Connor")
-                .emergencyContactPhone("+1 555-0199")
-                .build());
-
-        Employee empMichael = employeeRepository.save(Employee.builder()
-                .authProviderUserId("hrmanager@company.com")
-                .employeeCode("EMP-002")
-                .firstName("Michael")
-                .lastName("Scott")
-                .email("hrmanager@company.com")
-                .phone("+1 555-0102")
-                .dateOfBirth(LocalDate.of(1982, 3, 15))
-                .address("1725 Slough Avenue, Scranton, PA")
-                .department(deptHr)
-                .jobPosition(jobHrDir)
-                .joiningDate(LocalDate.of(2022, 6, 1))
-                .employeeType("FULL_TIME")
-                .status("ACTIVE")
-                .bankAccountNo("US12389471928374")
-                .bankName("Wells Fargo")
-                .ifscCode("WFBIUS6S")
-                .emergencyContactName("Jan Levinson")
-                .emergencyContactPhone("+1 555-0198")
-                .build());
-
-        Employee empDwight = employeeRepository.save(Employee.builder()
-                .authProviderUserId("employee@company.com")
-                .employeeCode("EMP-003")
-                .firstName("Dwight")
-                .lastName("Schrute")
-                .email("employee@company.com")
-                .phone("+1 555-0103")
-                .dateOfBirth(LocalDate.of(1985, 1, 20))
-                .address("Schrute Farms, Honesdale, PA")
-                .department(deptSales)
-                .jobPosition(jobSalesExec)
-                .manager(empMichael)
-                .joiningDate(LocalDate.of(2022, 9, 10))
-                .employeeType("FULL_TIME")
-                .status("ACTIVE")
-                .bankAccountNo("US48291039482716")
-                .bankName("PNC Bank")
-                .ifscCode("PNCCUS33")
-                .emergencyContactName("Mose Schrute")
-                .emergencyContactPhone("+1 555-0197")
-                .build());
-
-        Employee empPam = employeeRepository.save(Employee.builder()
-                .authProviderUserId("pam@company.com")
-                .employeeCode("EMP-004")
-                .firstName("Pam")
-                .lastName("Beesly")
-                .email("pam@company.com")
-                .phone("+1 555-0104")
-                .dateOfBirth(LocalDate.of(1988, 3, 25))
-                .address("42 Elm Street, Scranton, PA")
-                .department(deptMkt)
-                .jobPosition(jobMktLead)
-                .manager(empMichael)
-                .joiningDate(LocalDate.of(2023, 3, 1))
-                .employeeType("FULL_TIME")
-                .status("ACTIVE")
-                .bankAccountNo("US71928340192837")
-                .bankName("Bank of America")
-                .ifscCode("BOFAUS3N")
-                .emergencyContactName("Roy Anderson")
-                .emergencyContactPhone("+1 555-0196")
-                .build());
-
-        Employee empJim = employeeRepository.save(Employee.builder()
-                .authProviderUserId("jim@company.com")
-                .employeeCode("EMP-005")
-                .firstName("Jim")
-                .lastName("Halpert")
-                .email("jim@company.com")
-                .phone("+1 555-0105")
-                .dateOfBirth(LocalDate.of(1987, 10, 1))
-                .address("12 Oak Avenue, Scranton, PA")
-                .department(deptEng)
-                .jobPosition(jobOps)
-                .manager(empSarah)
-                .joiningDate(LocalDate.of(2023, 2, 15))
-                .employeeType("FULL_TIME")
-                .status("ACTIVE")
-                .bankAccountNo("US62910384729102")
-                .bankName("Citibank")
-                .ifscCode("CITIUS33")
-                .emergencyContactName("Pete Halpert")
-                .emergencyContactPhone("+1 555-0195")
-                .build());
-
-        // Assign department managers
+        // Assign Department Managers
         deptEng.setManager(empSarah);
         deptHr.setManager(empMichael);
         deptSales.setManager(empDwight);
@@ -385,208 +162,294 @@ public class DataInitializer implements CommandLineRunner {
         departmentRepository.saveAll(List.of(deptEng, deptHr, deptSales, deptMkt, deptFin));
 
         // 6. Contracts
-        Contract c1 = contractRepository.save(Contract.builder()
-                .employee(empSarah)
-                .contractType("PERMANENT")
-                .startDate(LocalDate.of(2023, 1, 15))
-                .salary(new BigDecimal("6500.00"))
-                .salaryStructure(structRegular)
-                .workingSchedule(schedule40)
-                .status("RUNNING")
-                .build());
-
-        Contract c2 = contractRepository.save(Contract.builder()
-                .employee(empMichael)
-                .contractType("PERMANENT")
-                .startDate(LocalDate.of(2022, 6, 1))
-                .salary(new BigDecimal("8200.00"))
-                .salaryStructure(structExec)
-                .workingSchedule(schedule40)
-                .status("RUNNING")
-                .build());
-
-        Contract c3 = contractRepository.save(Contract.builder()
-                .employee(empDwight)
-                .contractType("PERMANENT")
-                .startDate(LocalDate.of(2022, 9, 10))
-                .salary(new BigDecimal("5400.00"))
-                .salaryStructure(structSales)
-                .workingSchedule(schedule40)
-                .status("RUNNING")
-                .build());
-
-        Contract c4 = contractRepository.save(Contract.builder()
-                .employee(empPam)
-                .contractType("PERMANENT")
-                .startDate(LocalDate.of(2023, 3, 1))
-                .salary(new BigDecimal("4800.00"))
-                .salaryStructure(structRegular)
-                .workingSchedule(schedule40)
-                .status("RUNNING")
-                .build());
-
-        Contract c5 = contractRepository.save(Contract.builder()
-                .employee(empJim)
-                .contractType("PERMANENT")
-                .startDate(LocalDate.of(2023, 2, 15))
-                .salary(new BigDecimal("7000.00"))
-                .salaryStructure(structRegular)
-                .workingSchedule(schedule40)
-                .status("RUNNING")
-                .build());
+        Contract cSarah = getOrCreateContract(empSarah, "PERMANENT", LocalDate.of(2023, 1, 15), new BigDecimal("6500.00"), structRegular, schedule40);
+        Contract cMichael = getOrCreateContract(empMichael, "PERMANENT", LocalDate.of(2022, 6, 1), new BigDecimal("8200.00"), structExec, schedule40);
+        Contract cDwight = getOrCreateContract(empDwight, "PERMANENT", LocalDate.of(2022, 9, 10), new BigDecimal("5400.00"), structSales, schedule40);
+        Contract cPam = getOrCreateContract(empPam, "PERMANENT", LocalDate.of(2023, 3, 1), new BigDecimal("4800.00"), structRegular, schedule40);
+        Contract cJim = getOrCreateContract(empJim, "PERMANENT", LocalDate.of(2023, 2, 15), new BigDecimal("7000.00"), structRegular, schedule40);
+        Contract cAlice = getOrCreateContract(empAlice, "PERMANENT", LocalDate.of(2023, 5, 20), new BigDecimal("5200.00"), structRegular, schedule40);
+        Contract cArthur = getOrCreateContract(empArthur, "PERMANENT", LocalDate.of(2022, 1, 10), new BigDecimal("6800.00"), structRegular, schedule40);
+        Contract cRachel = getOrCreateContract(empRachel, "PERMANENT", LocalDate.of(2022, 8, 15), new BigDecimal("7500.00"), structExec, schedule40);
 
         // 7. Time Off Types & Allocations
-        TimeOffType typeAnnual = timeOffTypeRepository.save(TimeOffType.builder()
-                .name("Annual Paid Leave")
-                .description("Standard paid time off allocation")
-                .paid(true)
-                .requiresApproval(true)
-                .status("ACTIVE")
-                .build());
+        TimeOffType typeAnnual = getOrCreateTimeOffType("Annual Paid Leave", "Standard paid time off allocation", true, true);
+        TimeOffType typeSick = getOrCreateTimeOffType("Sick Leave", "Medical leave for illness and health appointments", true, false);
+        TimeOffType typeUnpaid = getOrCreateTimeOffType("Unpaid Leave", "Leave of absence without compensation", false, true);
 
-        TimeOffType typeSick = timeOffTypeRepository.save(TimeOffType.builder()
-                .name("Sick Leave")
-                .description("Medical leave for illness and health appointments")
-                .paid(true)
-                .requiresApproval(false)
-                .status("ACTIVE")
-                .build());
-
-        TimeOffType typeUnpaid = timeOffTypeRepository.save(TimeOffType.builder()
-                .name("Unpaid Leave")
-                .description("Leave of absence without compensation")
-                .paid(false)
-                .requiresApproval(true)
-                .status("ACTIVE")
-                .build());
-
-        List<Employee> allEmployees = List.of(empSarah, empMichael, empDwight, empPam, empJim);
+        List<Employee> allEmployees = List.of(empSarah, empMichael, empDwight, empPam, empJim, empAlice, empArthur, empRachel);
         LocalDate yearStart = LocalDate.of(2026, 1, 1);
         LocalDate yearEnd = LocalDate.of(2026, 12, 31);
 
         for (Employee emp : allEmployees) {
-            timeOffAllocationRepository.save(TimeOffAllocation.builder()
-                    .employee(emp)
-                    .timeOffType(typeAnnual)
-                    .periodStart(yearStart)
-                    .periodEnd(yearEnd)
-                    .allocatedDays(new BigDecimal("24.00"))
-                    .usedDays(new BigDecimal("2.00"))
-                    .remainingDays(new BigDecimal("22.00"))
-                    .build());
-
-            timeOffAllocationRepository.save(TimeOffAllocation.builder()
-                    .employee(emp)
-                    .timeOffType(typeSick)
-                    .periodStart(yearStart)
-                    .periodEnd(yearEnd)
-                    .allocatedDays(new BigDecimal("12.00"))
-                    .usedDays(BigDecimal.ZERO)
-                    .remainingDays(new BigDecimal("12.00"))
-                    .build());
+            getOrCreateAllocation(emp, typeAnnual, yearStart, yearEnd, new BigDecimal("24.00"), new BigDecimal("2.00"), new BigDecimal("22.00"));
+            getOrCreateAllocation(emp, typeSick, yearStart, yearEnd, new BigDecimal("12.00"), BigDecimal.ZERO, new BigDecimal("12.00"));
         }
 
-        // Sample Leave Requests
-        timeOffRequestRepository.save(TimeOffRequest.builder()
-                .employee(empDwight)
-                .timeOffType(typeSick)
-                .startDate(LocalDate.now().plusDays(2))
-                .endDate(LocalDate.now().plusDays(3))
-                .duration(new BigDecimal("2.00"))
-                .reason("Dental surgery recovery")
-                .status("PENDING")
-                .build());
+        // Leave Requests
+        ensureLeaveRequest(empDwight, typeSick, LocalDate.now().plusDays(2), LocalDate.now().plusDays(3), new BigDecimal("2.00"), "Dental surgery recovery", "PENDING", null);
+        ensureLeaveRequest(empPam, typeAnnual, LocalDate.now().plusDays(10), LocalDate.now().plusDays(12), new BigDecimal("3.00"), "Family vacation trip", "APPROVED", empMichael);
+        ensureLeaveRequest(empJim, typeAnnual, LocalDate.now().plusDays(5), LocalDate.now().plusDays(7), new BigDecimal("3.00"), "Personal retreat", "APPROVED", empSarah);
+        ensureLeaveRequest(empAlice, typeAnnual, LocalDate.now().plusDays(14), LocalDate.now().plusDays(18), new BigDecimal("5.00"), "Annual holiday leave", "PENDING", null);
 
-        timeOffRequestRepository.save(TimeOffRequest.builder()
-                .employee(empPam)
-                .timeOffType(typeAnnual)
-                .startDate(LocalDate.now().plusDays(10))
-                .endDate(LocalDate.now().plusDays(12))
-                .duration(new BigDecimal("3.00"))
-                .reason("Family vacation trip")
-                .status("APPROVED")
-                .approvedBy(empMichael)
-                .approvedAt(OffsetDateTime.now().minusDays(1))
-                .build());
-
-        // 8. Attendance Logs
+        // 8. Attendance Logs for Today
         LocalDate today = LocalDate.now();
-        attendanceRepository.save(Attendance.builder()
-                .employee(empSarah)
-                .attendanceDate(today)
-                .checkIn(OffsetDateTime.now().withHour(9).withMinute(2))
-                .scheduledHours(new BigDecimal("8.00"))
-                .status("PRESENT")
-                .build());
+        ensureTodayAttendance(empSarah, today, 9, 2, "PRESENT");
+        ensureTodayAttendance(empMichael, today, 9, 30, "PRESENT");
+        ensureTodayAttendance(empJim, today, 8, 55, "PRESENT");
+        ensureTodayAttendance(empAlice, today, 9, 0, "PRESENT");
+        ensureTodayAttendance(empArthur, today, 9, 10, "PRESENT");
 
-        attendanceRepository.save(Attendance.builder()
-                .employee(empJim)
-                .attendanceDate(today)
-                .checkIn(OffsetDateTime.now().withHour(8).withMinute(55))
-                .scheduledHours(new BigDecimal("8.00"))
-                .status("PRESENT")
-                .build());
+        // 9. Payrun & Payslips
+        Payrun payrunSep = getOrCreatePayrun(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30), structRegular, "PAID", "admin@company.com");
 
-        attendanceRepository.save(Attendance.builder()
-                .employee(empMichael)
-                .attendanceDate(today)
-                .checkIn(OffsetDateTime.now().withHour(9).withMinute(30))
-                .scheduledHours(new BigDecimal("8.00"))
-                .status("PRESENT")
-                .build());
+        ensurePayslipWithLines(payrunSep, empSarah, cSarah, structRegular, new BigDecimal("6500.00"), new BigDecimal("812.50"), new BigDecimal("5687.50"));
+        ensurePayslipWithLines(payrunSep, empMichael, cMichael, structExec, new BigDecimal("8200.00"), new BigDecimal("1025.00"), new BigDecimal("7175.00"));
+        ensurePayslipWithLines(payrunSep, empDwight, cDwight, structSales, new BigDecimal("5400.00"), new BigDecimal("675.00"), new BigDecimal("4725.00"));
+        ensurePayslipWithLines(payrunSep, empPam, cPam, structRegular, new BigDecimal("4800.00"), new BigDecimal("600.00"), new BigDecimal("4200.00"));
+        ensurePayslipWithLines(payrunSep, empJim, cJim, structRegular, new BigDecimal("7000.00"), new BigDecimal("875.00"), new BigDecimal("6125.00"));
+        ensurePayslipWithLines(payrunSep, empAlice, cAlice, structRegular, new BigDecimal("5200.00"), new BigDecimal("650.00"), new BigDecimal("4550.00"));
 
-        // 9. September 2026 Payrun & Payslips
-        Payrun payrun = Payrun.builder()
-                .periodStart(LocalDate.of(2026, 9, 1))
-                .periodEnd(LocalDate.of(2026, 9, 30))
-                .salaryStructure(structRegular)
-                .status("PAID")
-                .createdBy("admin@company.com")
-                .calculatedAt(OffsetDateTime.now().minusDays(5))
-                .validatedAt(OffsetDateTime.now().minusDays(3))
-                .paidAt(OffsetDateTime.now().minusDays(1))
-                .build();
-        payrun = payrunRepository.save(payrun);
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("status", "SUCCESS");
+        summary.put("departmentsCount", departmentRepository.count());
+        summary.put("jobPositionsCount", jobPositionRepository.count());
+        summary.put("employeesCount", employeeRepository.count());
+        summary.put("contractsCount", contractRepository.count());
+        summary.put("payrunsCount", payrunRepository.count());
+        summary.put("payslipsCount", payslipRepository.count());
+        summary.put("timeoffRequestsCount", timeOffRequestRepository.count());
+        summary.put("attendanceCount", attendanceRepository.count());
 
-        // Payslips
-        Payslip ps1 = payslipRepository.save(Payslip.builder()
-                .payrun(payrun)
-                .employee(empSarah)
-                .contract(c1)
-                .salaryStructure(structRegular)
-                .periodStart(LocalDate.of(2026, 9, 1))
-                .periodEnd(LocalDate.of(2026, 9, 30))
-                .grossSalary(new BigDecimal("6500.00"))
-                .totalDeductions(new BigDecimal("812.50"))
-                .netSalary(new BigDecimal("5687.50"))
-                .status("PAID")
-                .build());
+        log.info("Comprehensive HRMS seeding completed successfully: {}", summary);
+        return summary;
+    }
 
-        payslipLineRepository.save(PayslipLine.builder().payslip(ps1).ruleCode("BASIC").ruleName("Basic Salary").category("BASIC").amount(new BigDecimal("3250.00")).sequence(1).build());
-        payslipLineRepository.save(PayslipLine.builder().payslip(ps1).ruleCode("HRA").ruleName("House Rent Allowance (HRA)").category("ALW").amount(new BigDecimal("1625.00")).sequence(2).build());
-        payslipLineRepository.save(PayslipLine.builder().payslip(ps1).ruleCode("TRANS").ruleName("Transport Conveyance").category("ALW").amount(new BigDecimal("300.00")).sequence(3).build());
-        payslipLineRepository.save(PayslipLine.builder().payslip(ps1).ruleCode("TAX").ruleName("Income Tax Withholding (10%)").category("DED").amount(new BigDecimal("650.00")).sequence(4).build());
-        payslipLineRepository.save(PayslipLine.builder().payslip(ps1).ruleCode("PF").ruleName("Provident Fund (5%)").category("DED").amount(new BigDecimal("162.50")).sequence(5).build());
+    // --- Helper Methods for Idempotent Seeding ---
 
-        Payslip ps2 = payslipRepository.save(Payslip.builder()
-                .payrun(payrun)
-                .employee(empMichael)
-                .contract(c2)
-                .salaryStructure(structExec)
-                .periodStart(LocalDate.of(2026, 9, 1))
-                .periodEnd(LocalDate.of(2026, 9, 30))
-                .grossSalary(new BigDecimal("8200.00"))
-                .totalDeductions(new BigDecimal("1025.00"))
-                .netSalary(new BigDecimal("7175.00"))
-                .status("PAID")
-                .build());
+    private Department getOrCreateDepartment(String name, String description) {
+        return departmentRepository.findByName(name).orElseGet(() ->
+                departmentRepository.save(Department.builder()
+                        .name(name)
+                        .description(description)
+                        .status("ACTIVE")
+                        .build())
+        );
+    }
 
-        payslipLineRepository.save(PayslipLine.builder().payslip(ps2).ruleCode("BASIC").ruleName("Basic Salary").category("BASIC").amount(new BigDecimal("4100.00")).sequence(1).build());
-        payslipLineRepository.save(PayslipLine.builder().payslip(ps2).ruleCode("HRA").ruleName("House Rent Allowance").category("ALW").amount(new BigDecimal("1100.00")).sequence(2).build());
-        payslipLineRepository.save(PayslipLine.builder().payslip(ps2).ruleCode("EXEC").ruleName("Executive Allowance").category("ALW").amount(new BigDecimal("2500.00")).sequence(3).build());
-        payslipLineRepository.save(PayslipLine.builder().payslip(ps2).ruleCode("TAX").ruleName("Income Tax Withholding").category("DED").amount(new BigDecimal("820.00")).sequence(4).build());
-        payslipLineRepository.save(PayslipLine.builder().payslip(ps2).ruleCode("PF").ruleName("Provident Fund").category("DED").amount(new BigDecimal("205.00")).sequence(5).build());
+    private JobPosition getOrCreateJobPosition(String title, Department dept, String description) {
+        return jobPositionRepository.findByTitle(title).orElseGet(() ->
+                jobPositionRepository.save(JobPosition.builder()
+                        .title(title)
+                        .department(dept)
+                        .description(description)
+                        .status("ACTIVE")
+                        .build())
+        );
+    }
 
-        log.info("Enterprise HRMS database seeding successfully completed!");
+    private WorkingSchedule getOrCreateWorkingSchedule(String name, String description) {
+        return workingScheduleRepository.findAll().stream()
+                .filter(s -> s.getName().equals(name))
+                .findFirst()
+                .orElseGet(() -> {
+                    WorkingSchedule ws = workingScheduleRepository.save(WorkingSchedule.builder()
+                            .name(name)
+                            .description(description)
+                            .build());
+                    String[] weekdays = {"MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"};
+                    for (String day : weekdays) {
+                        WorkingScheduleDay d = WorkingScheduleDay.builder()
+                                .workingSchedule(ws)
+                                .weekday(day)
+                                .startTime(LocalTime.of(9, 0))
+                                .endTime(LocalTime.of(18, 0))
+                                .breakMinutes(60)
+                                .build();
+                        ws.getDays().add(d);
+                    }
+                    return workingScheduleRepository.save(ws);
+                });
+    }
+
+    private SalaryStructure getOrCreateSalaryStructure(String name, String description) {
+        return salaryStructureRepository.findByName(name).orElseGet(() ->
+                salaryStructureRepository.save(SalaryStructure.builder()
+                        .name(name)
+                        .description(description)
+                        .status("ACTIVE")
+                        .build())
+        );
+    }
+
+    private void ensureSalaryRule(SalaryStructure structure, String name, String code, int seq, String cat, String calcType, BigDecimal pct, String formula) {
+        Optional<SalaryRule> existing = salaryRuleRepository.findByCode(code);
+        if (existing.isEmpty()) {
+            salaryRuleRepository.save(SalaryRule.builder()
+                    .salaryStructure(structure)
+                    .name(name)
+                    .code(code)
+                    .sequence(seq)
+                    .category(cat)
+                    .calculationType(calcType)
+                    .percentage(pct)
+                    .formula(formula)
+                    .active(true)
+                    .build());
+        }
+    }
+
+    private Employee getOrCreateEmployee(String authId, String code, String first, String last, String email, String phone,
+                                        LocalDate dob, String address, Department dept, JobPosition job, LocalDate join,
+                                        String bankAcc, String bankName, String ifsc) {
+        return employeeRepository.findByEmail(email).orElseGet(() ->
+                employeeRepository.save(Employee.builder()
+                        .authProviderUserId(authId)
+                        .employeeCode(code)
+                        .firstName(first)
+                        .lastName(last)
+                        .email(email)
+                        .phone(phone)
+                        .dateOfBirth(dob)
+                        .address(address)
+                        .department(dept)
+                        .jobPosition(job)
+                        .joiningDate(join)
+                        .employeeType("FULL_TIME")
+                        .status("ACTIVE")
+                        .bankAccountNo(bankAcc)
+                        .bankName(bankName)
+                        .ifscCode(ifsc)
+                        .emergencyContactName("Office HR")
+                        .emergencyContactPhone("+1 555-0100")
+                        .build())
+        );
+    }
+
+    private Contract getOrCreateContract(Employee emp, String type, LocalDate start, BigDecimal salary, SalaryStructure struct, WorkingSchedule schedule) {
+        return contractRepository.findByEmployeeId(emp.getId()).stream()
+                .filter(c -> "RUNNING".equals(c.getStatus()) || "ACTIVE".equals(c.getStatus()))
+                .findFirst()
+                .orElseGet(() ->
+                        contractRepository.save(Contract.builder()
+                                .employee(emp)
+                                .contractType(type)
+                                .startDate(start)
+                                .salary(salary)
+                                .salaryStructure(struct)
+                                .workingSchedule(schedule)
+                                .status("RUNNING")
+                                .build())
+                );
+    }
+
+    private TimeOffType getOrCreateTimeOffType(String name, String desc, boolean paid, boolean reqApproval) {
+        return timeOffTypeRepository.findByName(name).orElseGet(() ->
+                timeOffTypeRepository.save(TimeOffType.builder()
+                        .name(name)
+                        .description(desc)
+                        .paid(paid)
+                        .requiresApproval(reqApproval)
+                        .status("ACTIVE")
+                        .build())
+        );
+    }
+
+    private void getOrCreateAllocation(Employee emp, TimeOffType type, LocalDate start, LocalDate end, BigDecimal alloc, BigDecimal used, BigDecimal rem) {
+        Optional<TimeOffAllocation> existing = timeOffAllocationRepository.findByEmployeeIdAndTimeOffTypeId(emp.getId(), type.getId());
+        if (existing.isEmpty()) {
+            timeOffAllocationRepository.save(TimeOffAllocation.builder()
+                    .employee(emp)
+                    .timeOffType(type)
+                    .periodStart(start)
+                    .periodEnd(end)
+                    .allocatedDays(alloc)
+                    .usedDays(used)
+                    .remainingDays(rem)
+                    .build());
+        }
+    }
+
+    private void ensureLeaveRequest(Employee emp, TimeOffType type, LocalDate start, LocalDate end, BigDecimal duration, String reason, String status, Employee approver) {
+        boolean exists = timeOffRequestRepository.findByEmployeeId(emp.getId()).stream()
+                .anyMatch(r -> r.getStartDate().equals(start));
+        if (!exists) {
+            timeOffRequestRepository.save(TimeOffRequest.builder()
+                    .employee(emp)
+                    .timeOffType(type)
+                    .startDate(start)
+                    .endDate(end)
+                    .duration(duration)
+                    .reason(reason)
+                    .status(status)
+                    .approvedBy(approver)
+                    .approvedAt(approver != null ? OffsetDateTime.now() : null)
+                    .build());
+        }
+    }
+
+    private void ensureTodayAttendance(Employee emp, LocalDate date, int hour, int min, String status) {
+        Optional<Attendance> existing = attendanceRepository.findByEmployeeIdAndAttendanceDate(emp.getId(), date);
+        if (existing.isEmpty()) {
+            attendanceRepository.save(Attendance.builder()
+                    .employee(emp)
+                    .attendanceDate(date)
+                    .checkIn(OffsetDateTime.now().withHour(hour).withMinute(min))
+                    .scheduledHours(new BigDecimal("8.00"))
+                    .overtimeHours(BigDecimal.ZERO)
+                    .lateMinutes(0)
+                    .status(status)
+                    .build());
+        }
+    }
+
+    private Payrun getOrCreatePayrun(LocalDate start, LocalDate end, SalaryStructure struct, String status, String createdBy) {
+        return payrunRepository.findAll().stream()
+                .filter(p -> p.getPeriodStart().equals(start) && p.getPeriodEnd().equals(end))
+                .findFirst()
+                .orElseGet(() ->
+                        payrunRepository.save(Payrun.builder()
+                                .periodStart(start)
+                                .periodEnd(end)
+                                .salaryStructure(struct)
+                                .status(status)
+                                .createdBy(createdBy)
+                                .calculatedAt(OffsetDateTime.now().minusDays(5))
+                                .validatedAt(OffsetDateTime.now().minusDays(3))
+                                .paidAt(OffsetDateTime.now().minusDays(1))
+                                .build())
+                );
+    }
+
+    private void ensurePayslipWithLines(Payrun payrun, Employee emp, Contract contract, SalaryStructure struct, BigDecimal gross, BigDecimal ded, BigDecimal net) {
+        Optional<Payslip> existing = payslipRepository.findByPayrunId(payrun.getId()).stream()
+                .filter(p -> p.getEmployee().getId().equals(emp.getId()))
+                .findFirst();
+
+        if (existing.isEmpty()) {
+            Payslip ps = payslipRepository.save(Payslip.builder()
+                    .payrun(payrun)
+                    .employee(emp)
+                    .contract(contract)
+                    .salaryStructure(struct)
+                    .periodStart(payrun.getPeriodStart())
+                    .periodEnd(payrun.getPeriodEnd())
+                    .grossSalary(gross)
+                    .totalDeductions(ded)
+                    .netSalary(net)
+                    .status("PAID")
+                    .build());
+
+            BigDecimal basic = gross.multiply(new BigDecimal("0.50"));
+            BigDecimal hra = gross.multiply(new BigDecimal("0.25"));
+            BigDecimal trans = new BigDecimal("300.00");
+            BigDecimal tax = gross.multiply(new BigDecimal("0.10"));
+            BigDecimal pf = basic.multiply(new BigDecimal("0.05"));
+
+            payslipLineRepository.save(PayslipLine.builder().payslip(ps).ruleCode("BASIC").ruleName("Basic Salary").category("BASIC").amount(basic).sequence(1).build());
+            payslipLineRepository.save(PayslipLine.builder().payslip(ps).ruleCode("HRA").ruleName("House Rent Allowance (HRA)").category("ALW").amount(hra).sequence(2).build());
+            payslipLineRepository.save(PayslipLine.builder().payslip(ps).ruleCode("TRANS").ruleName("Transport Conveyance").category("ALW").amount(trans).sequence(3).build());
+            payslipLineRepository.save(PayslipLine.builder().payslip(ps).ruleCode("TAX").ruleName("Income Tax Withholding (10%)").category("DED").amount(tax).sequence(4).build());
+            payslipLineRepository.save(PayslipLine.builder().payslip(ps).ruleCode("PF").ruleName("Provident Fund (5%)").category("DED").amount(pf).sequence(5).build());
+        }
     }
 }

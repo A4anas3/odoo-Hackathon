@@ -36,6 +36,11 @@ public class AttendanceService {
     @Transactional
     public AttendanceResponse checkIn(CheckInRequest request) {
         Employee employee = currentEmployeeService.getCurrentEmployee();
+
+        if (employee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(employee.getStatus())) {
+            throw new ConflictException("Inactive, suspended, or terminated employees cannot check in. Current employment status: " + (employee.getStatus() != null ? employee.getStatus() : "UNKNOWN"));
+        }
+
         LocalDate today = LocalDate.now();
 
         Optional<Attendance> existing = attendanceRepository.findByEmployeeIdAndAttendanceDate(employee.getId(), today);
@@ -61,6 +66,11 @@ public class AttendanceService {
     @Transactional
     public AttendanceResponse checkOut(CheckOutRequest request) {
         Employee employee = currentEmployeeService.getCurrentEmployee();
+
+        if (employee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(employee.getStatus())) {
+            throw new ConflictException("Inactive, suspended, or terminated employees cannot check out. Current employment status: " + (employee.getStatus() != null ? employee.getStatus() : "UNKNOWN"));
+        }
+
         LocalDate today = LocalDate.now();
 
         Attendance attendance = attendanceRepository.findByEmployeeIdAndAttendanceDate(employee.getId(), today)

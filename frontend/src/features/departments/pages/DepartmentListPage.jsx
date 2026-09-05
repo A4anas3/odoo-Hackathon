@@ -11,12 +11,15 @@ import { Building2, Plus, Users } from 'lucide-react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { departmentApi } from '../api/departmentApi';
+import { useEmployees } from '../../employees/hooks/useEmployees';
 
 export function DepartmentListPage() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newDept, setNewDept] = useState({ name: '', description: '', status: 'ACTIVE' });
+
+  const { data: employees = [] } = useEmployees();
 
   const { data: departments = [], isLoading } = useQuery({
     queryKey: ['departments'],
@@ -117,7 +120,11 @@ export function DepartmentListPage() {
           </FormField>
           <FormField label="Department Head">
             <Select
-              options={['Sarah Connor', 'Michael Scott', 'Dwight Schrute', 'Pam Beesly']}
+              options={
+                employees.length > 0
+                  ? employees.map((e) => `${e.firstName} ${e.lastName || ''}`.trim())
+                  : ['None']
+              }
               value={newDept.manager}
               onChange={(e) => setNewDept({ ...newDept, manager: e.target.value })}
             />

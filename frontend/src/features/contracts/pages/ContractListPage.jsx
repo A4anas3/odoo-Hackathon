@@ -25,12 +25,12 @@ export function ContractListPage() {
 
   const filteredContracts = contracts.filter((c) => {
     if (statusFilter !== 'ALL' && c.status !== statusFilter) return false;
-    if (
-      search &&
-      !c.employee?.name?.toLowerCase().includes(search.toLowerCase()) &&
-      !c.structureName?.toLowerCase().includes(search.toLowerCase())
-    )
+    const empName = (c.employeeName || c.employee?.name || '').toLowerCase();
+    const structName = (c.salaryStructureName || c.structureName || '').toLowerCase();
+    const query = search.toLowerCase();
+    if (search && !empName.includes(query) && !structName.includes(query)) {
       return false;
+    }
     return true;
   });
 
@@ -38,23 +38,27 @@ export function ContractListPage() {
     {
       header: 'Employee',
       key: 'employee',
-      render: (emp) => (
-        <div className="flex items-center gap-2.5">
-          <Avatar name={emp?.name} size="sm" />
-          <div>
-            <span className="font-semibold text-slate-800 leading-tight block">{emp?.name}</span>
-            <span className="text-[10px] text-slate-400 font-mono">{emp?.code}</span>
+      render: (emp, row) => {
+        const name = row.employeeName || emp?.name || '—';
+        const code = row.employeeCode || emp?.code || '—';
+        return (
+          <div className="flex items-center gap-2.5">
+            <Avatar name={name} size="sm" />
+            <div>
+              <span className="font-semibold text-slate-800 leading-tight block">{name}</span>
+              <span className="text-[10px] text-slate-400 font-mono">{code}</span>
+            </div>
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       header: 'Wage / Compensation',
       key: 'wage',
       render: (wage, row) => (
         <div>
-          <span className="font-bold text-slate-900">{formatCurrency(wage)}</span>
-          <span className="text-[10px] text-slate-400 block lowercase">/ {row.wageType}</span>
+          <span className="font-bold text-slate-900">{formatCurrency(row.salary || wage || 0)}</span>
+          <span className="text-[10px] text-slate-400 block lowercase">/ {row.contractType || row.wageType || 'monthly'}</span>
         </div>
       ),
     },

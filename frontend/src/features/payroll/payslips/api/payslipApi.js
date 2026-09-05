@@ -72,19 +72,15 @@ export const payslipApi = {
   async getMyPayslips() {
     try {
       const res = await apiClient.get('/payroll/payslips/my');
-      if (Array.isArray(res.data) && res.data.length > 0) return res.data;
-      return DEFAULT_PAYSLIPS;
+      if (Array.isArray(res.data)) return res.data;
+      return [];
     } catch {
-      return DEFAULT_PAYSLIPS;
+      return [];
     }
   },
 
   async getPayslipById(id) {
-    try {
-      const res = await apiClient.get(`/payroll/payslips/${id}`);
-      return res.data;
-    } catch {
-      return DEFAULT_PAYSLIPS.find((p) => p.id === id) || DEFAULT_PAYSLIPS[0];
-    }
+    const res = await apiClient.get(`/payroll/payslips/${id}`);
+    return res.data;
   },
 };

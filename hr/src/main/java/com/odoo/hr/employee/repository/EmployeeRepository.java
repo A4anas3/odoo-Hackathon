@@ -24,4 +24,5 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     boolean existsByEmployeeCode(String employeeCode);
 
     List<Employee> findByStatus(String status);
+    long countByDepartmentId(UUID departmentId);
 }

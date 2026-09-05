@@ -146,4 +146,12 @@ public class AttendanceService {
                 .map(AttendanceResponse::fromEntity)
                 .toList();
     }
+
+    @Transactional(readOnly = true)
+    public List<AttendanceResponse> getAllAttendance() {
+        return attendanceRepository.findAll().stream()
+                .sorted((a, b) -> b.getAttendanceDate().compareTo(a.getAttendanceDate()))
+                .map(AttendanceResponse::fromEntity)
+                .toList();
+    }
 }

@@ -60,47 +60,27 @@ export const DEFAULT_CONTRACTS = [
 
 export const contractApi = {
   async getContracts() {
-    try {
-      const res = await apiClient.get('/contracts/my');
-      if (Array.isArray(res.data) && res.data.length > 0) return res.data;
-      return DEFAULT_CONTRACTS;
-    } catch {
-      return DEFAULT_CONTRACTS;
-    }
+    const res = await apiClient.get('/contracts');
+    return Array.isArray(res.data) ? res.data : [];
+  },
+
+  async getMyContracts() {
+    const res = await apiClient.get('/contracts/my');
+    return Array.isArray(res.data) ? res.data : [];
   },
 
   async getContractById(id) {
-    try {
-      const res = await apiClient.get(`/contracts/${id}`);
-      return res.data;
-    } catch {
-      return DEFAULT_CONTRACTS.find((c) => c.id === id) || DEFAULT_CONTRACTS[0];
-    }
+    const res = await apiClient.get(`/contracts/${id}`);
+    return res.data;
   },
 
   async createContract(data) {
-    try {
-      const res = await apiClient.post('/contracts', data);
-      return res.data;
-    } catch {
-      const newContract = {
-        id: `cnt-${Date.now()}`,
-        status: 'ACTIVE',
-        ...data,
-      };
-      DEFAULT_CONTRACTS.unshift(newContract);
-      return newContract;
-    }
+    const res = await apiClient.post('/contracts', data);
+    return res.data;
   },
 
   async updateContractStatus(id, status) {
-    try {
-      const res = await apiClient.patch(`/contracts/${id}/status?status=${status}`);
-      return res.data;
-    } catch {
-      const found = DEFAULT_CONTRACTS.find((c) => c.id === id);
-      if (found) found.status = status;
-      return found;
-    }
+    const res = await apiClient.patch(`/contracts/${id}/status?status=${status}`);
+    return res.data;
   },
 };

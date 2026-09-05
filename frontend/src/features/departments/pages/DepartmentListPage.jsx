@@ -9,37 +9,39 @@ import { Select } from '../../../components/form/Select';
 import { useToast } from '../../../hooks/useToast';
 import { Building2, Plus, Users } from 'lucide-react';
 
-const INITIAL_DEPARTMENTS = [
-  { id: 'd1', name: 'Engineering', code: 'ENG', manager: 'Sarah Connor', employeeCount: 94, budget: '$680,000' },
-  { id: 'd2', name: 'Management', code: 'MGT', manager: 'Michael Scott', employeeCount: 12, budget: '$240,000' },
-  { id: 'd3', name: 'Sales', code: 'SLS', manager: 'Dwight Schrute', employeeCount: 58, budget: '$340,000' },
-  { id: 'd4', name: 'Human Resources', code: 'HR', manager: 'Pam Beesly', employeeCount: 16, budget: '$160,000' },
-  { id: 'd5', name: 'Finance', code: 'FIN', manager: 'Oscar Martinez', employeeCount: 22, budget: '$162,400' },
-];
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { departmentApi } from '../api/departmentApi';
 
 export function DepartmentListPage() {
   const toast = useToast();
-  const [departments, setDepartments] = useState(INITIAL_DEPARTMENTS);
+  const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newDept, setNewDept] = useState({ name: '', code: '', manager: 'Sarah Connor' });
+  const [newDept, setNewDept] = useState({ name: '', description: '', status: 'ACTIVE' });
+
+  const { data: departments = [], isLoading } = useQuery({
+    queryKey: ['departments'],
+    queryFn: () => departmentApi.getAllDepartments(),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data) => departmentApi.createDepartment(data),
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['departments'] });
+      setIsModalOpen(false);
+      setNewDept({ name: '', description: '', status: 'ACTIVE' });
+      toast.success(`Department ${created.name} created successfully.`);
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.message || 'Failed to create department.');
+    },
+  });
 
   const handleCreate = () => {
-    if (!newDept.name || !newDept.code) {
-      toast.error('Please enter department name and code.');
+    if (!newDept.name) {
+      toast.error('Please enter department name.');
       return;
     }
-    const created = {
-      id: `d-${Date.now()}`,
-      name: newDept.name,
-      code: newDept.code.toUpperCase(),
-      manager: newDept.manager,
-      employeeCount: 0,
-      budget: '$0',
-    };
-    setDepartments([...departments, created]);
-    setIsModalOpen(false);
-    setNewDept({ name: '', code: '', manager: 'Sarah Connor' });
-    toast.success(`Department ${created.name} created.`);
+    createMutation.mutate(newDept);
   };
 
   const columns = [

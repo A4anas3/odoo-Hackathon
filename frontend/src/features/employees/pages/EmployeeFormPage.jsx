@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { PageContainer } from '../../../components/layout/PageContainer';
 import { Card, CardContent } from '../../../components/ui/Card';
 import { FormField } from '../../../components/form/FormField';
@@ -7,6 +8,8 @@ import { Input } from '../../../components/form/Input';
 import { Select } from '../../../components/form/Select';
 import { Button } from '../../../components/ui/Button';
 import { useCreateEmployee, useUpdateEmployee, useEmployee } from '../hooks/useEmployees';
+import { departmentApi } from '../../departments/api/departmentApi';
+import { jobPositionApi } from '../../jobpositions/api/jobPositionApi';
 import { ROUTES } from '../../../config/routes';
 import { Save, ArrowLeft } from 'lucide-react';
 
@@ -19,6 +22,16 @@ export function EmployeeFormPage() {
   const createMutation = useCreateEmployee();
   const updateMutation = useUpdateEmployee();
 
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments'],
+    queryFn: departmentApi.getAllDepartments,
+  });
+
+  const { data: jobPositions = [] } = useQuery({
+    queryKey: ['job-positions'],
+    queryFn: () => jobPositionApi.getAllJobPositions(),
+  });
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -26,8 +39,8 @@ export function EmployeeFormPage() {
     phone: '',
     dateOfBirth: '',
     address: '',
-    departmentName: 'Engineering',
-    jobPositionName: 'Fullstack Engineer',
+    departmentName: '',
+    jobPositionName: '',
     employeeType: 'FULL_TIME',
     status: 'ACTIVE',
     joiningDate: new Date().toISOString().split('T')[0],
@@ -37,6 +50,18 @@ export function EmployeeFormPage() {
   });
 
   const [errors, setErrors] = useState({});
+
+  useEffect(() => {
+    if (!formData.departmentName && departments.length > 0 && !isEdit) {
+      setFormData((prev) => ({ ...prev, departmentName: departments[0].name }));
+    }
+  }, [departments, isEdit, formData.departmentName]);
+
+  useEffect(() => {
+    if (!formData.jobPositionName && jobPositions.length > 0 && !isEdit) {
+      setFormData((prev) => ({ ...prev, jobPositionName: jobPositions[0].title || jobPositions[0].name }));
+    }
+  }, [jobPositions, isEdit, formData.jobPositionName]);
 
   useEffect(() => {
     if (existingEmployee && isEdit) {
@@ -171,18 +196,33 @@ export function EmployeeFormPage() {
           <CardContent className="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             <FormField label="Department">
               <Select
-                options={['Engineering', 'Management', 'Sales', 'Human Resources', 'Finance']}
+                options={
+                  departments.length > 0
+                    ? departments.map((d) => ({ value: d.name, label: d.name }))
+                    : [{ value: '', label: 'Loading departments...' }]
+                }
                 value={formData.departmentName}
                 onChange={(e) => handleChange('departmentName', e.target.value)}
               />
             </FormField>
 
             <FormField label="Job Position">
-              <Input
-                value={formData.jobPositionName}
-                onChange={(e) => handleChange('jobPositionName', e.target.value)}
-                placeholder="e.g. Backend Engineer"
-              />
+              {jobPositions.length > 0 ? (
+                <Select
+                  options={jobPositions.map((j) => ({
+                    value: j.title || j.name,
+                    label: `${j.title || j.name}${j.departmentName ? ` (${j.departmentName})` : ''}`,
+                  }))}
+                  value={formData.jobPositionName}
+                  onChange={(e) => handleChange('jobPositionName', e.target.value)}
+                />
+              ) : (
+                <Input
+                  value={formData.jobPositionName}
+                  onChange={(e) => handleChange('jobPositionName', e.target.value)}
+                  placeholder="e.g. Fullstack Engineer"
+                />
+              )}
             </FormField>
 
             <FormField label="Employment Type">

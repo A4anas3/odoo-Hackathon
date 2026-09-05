@@ -1,27 +1,73 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { PageContainer } from '../../../components/layout/PageContainer';
 import { Card, CardHeader, CardContent } from '../../../components/ui/Card';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/form/Input';
+import { Select } from '../../../components/form/Select';
 import { Checkbox } from '../../../components/form/Checkbox';
 import { useToast } from '../../../hooks/useToast';
-import { Clock, Save, Plus } from 'lucide-react';
+import { Clock, Save, Calendar, CheckCircle2 } from 'lucide-react';
+import { scheduleApi } from '../api/scheduleApi';
 
-const INITIAL_SCHEDULE = [
-  { day: 'Monday', enabled: true, startTime: '09:00', endTime: '18:00', breakMinutes: 60 },
-  { day: 'Tuesday', enabled: true, startTime: '09:00', endTime: '18:00', breakMinutes: 60 },
-  { day: 'Wednesday', enabled: true, startTime: '09:00', endTime: '18:00', breakMinutes: 60 },
-  { day: 'Thursday', enabled: true, startTime: '09:00', endTime: '18:00', breakMinutes: 60 },
-  { day: 'Friday', enabled: true, startTime: '09:00', endTime: '18:00', breakMinutes: 60 },
-  { day: 'Saturday', enabled: false, startTime: '09:00', endTime: '13:00', breakMinutes: 0 },
-  { day: 'Sunday', enabled: false, startTime: '09:00', endTime: '18:00', breakMinutes: 0 },
-];
+const ALL_WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+const INITIAL_SCHEDULE = ALL_WEEKDAYS.map((day) => ({
+  day,
+  enabled: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day),
+  startTime: '09:00',
+  endTime: '18:00',
+  breakMinutes: 60,
+}));
 
 export function ScheduleEditorPage() {
   const toast = useToast();
-  const [scheduleName, setScheduleName] = useState('Standard Full-Time 40h');
+  const [selectedScheduleId, setSelectedScheduleId] = useState('');
+  const [scheduleName, setScheduleName] = useState('Standard 40h Full-Time');
+  const [scheduleDescription, setScheduleDescription] = useState('Standard Monday to Friday 40-hour work week');
   const [days, setDays] = useState(INITIAL_SCHEDULE);
   const [isSaving, setIsSaving] = useState(false);
+
+  const { data: schedules = [], isLoading } = useQuery({
+    queryKey: ['schedules'],
+    queryFn: scheduleApi.getAllSchedules,
+  });
+
+  useEffect(() => {
+    if (schedules.length > 0) {
+      const active = schedules.find((s) => s.id === selectedScheduleId) || schedules[0];
+      if (active) {
+        setSelectedScheduleId(active.id);
+        setScheduleName(active.name || 'Standard 40h Full-Time');
+        setScheduleDescription(active.description || '');
+
+        if (active.days && active.days.length > 0) {
+          const mapped = ALL_WEEKDAYS.map((dayName) => {
+            const found = active.days.find(
+              (d) => d.weekday?.toLowerCase() === dayName.toLowerCase()
+            );
+            if (found) {
+              return {
+                day: dayName,
+                enabled: true,
+                startTime: found.startTime ? found.startTime.substring(0, 5) : '09:00',
+                endTime: found.endTime ? found.endTime.substring(0, 5) : '18:00',
+                breakMinutes: found.breakMinutes != null ? found.breakMinutes : 60,
+              };
+            }
+            return {
+              day: dayName,
+              enabled: false,
+              startTime: '09:00',
+              endTime: '18:00',
+              breakMinutes: 0,
+            };
+          });
+          setDays(mapped);
+        }
+      }
+    }
+  }, [schedules, selectedScheduleId]);
 
   const calculateDayHours = (day) => {
     if (!day.enabled) return 0;
@@ -139,8 +185,21 @@ export function ScheduleEditorPage() {
         {/* Right Summary Card */}
         <div className="space-y-4">
           <Card>
-            <CardHeader title="Schedule Summary" />
+            <CardHeader title="Schedule Details" />
             <CardContent className="space-y-4 p-4">
+              {schedules.length > 1 && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Select Database Schedule
+                  </label>
+                  <Select
+                    options={schedules.map((s) => ({ value: s.id, label: s.name }))}
+                    value={selectedScheduleId}
+                    onChange={(e) => setSelectedScheduleId(e.target.value)}
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
                   Schedule Name
@@ -151,6 +210,12 @@ export function ScheduleEditorPage() {
                   placeholder="Schedule title"
                 />
               </div>
+
+              {scheduleDescription && (
+                <div className="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded border border-slate-100">
+                  {scheduleDescription}
+                </div>
+              )}
 
               <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 flex items-center justify-between">
                 <div>
@@ -174,8 +239,8 @@ export function ScheduleEditorPage() {
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Assigned Employees</span>
-                  <span className="font-semibold text-slate-800">184 staff</span>
+                  <span>Standard Shift</span>
+                  <span className="font-semibold text-slate-800">09:00 - 18:00</span>
                 </div>
               </div>
             </CardContent>

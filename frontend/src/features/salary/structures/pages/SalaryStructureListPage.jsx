@@ -7,47 +7,16 @@ import { Layers, Plus, Eye } from 'lucide-react';
 import { ROUTES } from '@/config/routes';
 import { useNavigate } from 'react-router-dom';
 
-const STRUCTURES = [
-  {
-    id: 'str-01',
-    name: 'Regular Full-Time',
-    code: 'RFT-STD',
-    rulesCount: 7,
-    rules: ['BASIC', 'HRA', 'TRANS', 'GROSS', 'TAX', 'PF', 'NET'],
-    assignedContracts: 142,
-    status: 'ACTIVE',
-  },
-  {
-    id: 'str-02',
-    name: 'Executive Management',
-    code: 'EXEC-01',
-    rulesCount: 8,
-    rules: ['BASIC', 'HRA', 'EXEC_ALLOWANCE', 'TRANS', 'GROSS', 'TAX', 'PF', 'NET'],
-    assignedContracts: 12,
-    status: 'ACTIVE',
-  },
-  {
-    id: 'str-03',
-    name: 'Sales Commission Base',
-    code: 'SALES-COMM',
-    rulesCount: 6,
-    rules: ['BASIC', 'COMMISSION', 'GROSS', 'TAX', 'PF', 'NET'],
-    assignedContracts: 58,
-    status: 'ACTIVE',
-  },
-  {
-    id: 'str-04',
-    name: 'Hourly Contractor',
-    code: 'HOURLY-CONTR',
-    rulesCount: 4,
-    rules: ['HOURLY_WAGE', 'GROSS', 'WHT', 'NET'],
-    assignedContracts: 24,
-    status: 'ACTIVE',
-  },
-];
+import { useQuery } from '@tanstack/react-query';
+import { salaryStructureApi } from '../api/salaryStructureApi';
 
 export function SalaryStructureListPage() {
   const navigate = useNavigate();
+
+  const { data: structures = [], isLoading } = useQuery({
+    queryKey: ['salaryStructures'],
+    queryFn: () => salaryStructureApi.getAllStructures(),
+  });
 
   const columns = [
     {

@@ -110,4 +110,31 @@ public class TimeOffService {
         log.info("TimeOff request {} reviewed by {} -> {}", requestId, reviewer.getId(), newStatus);
         return TimeOffResponse.fromEntity(updated);
     }
+
+    @Transactional(readOnly = true)
+    public List<com.odoo.hr.timeoff.dto.TimeOffTypeResponse> getAllTypes() {
+        return timeOffTypeRepository.findAll().stream()
+                .map(com.odoo.hr.timeoff.dto.TimeOffTypeResponse::fromEntity)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<com.odoo.hr.timeoff.dto.TimeOffAllocationResponse> getMyAllocations() {
+        try {
+            UUID employeeId = currentEmployeeService.getCurrentEmployeeId();
+            return timeOffAllocationRepository.findByEmployeeId(employeeId).stream()
+                    .map(com.odoo.hr.timeoff.dto.TimeOffAllocationResponse::fromEntity)
+                    .toList();
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public List<TimeOffResponse> getAllRequests() {
+        return timeOffRequestRepository.findAll().stream()
+                .sorted((a, b) -> b.getStartDate().compareTo(a.getStartDate()))
+                .map(TimeOffResponse::fromEntity)
+                .toList();
+    }
 }

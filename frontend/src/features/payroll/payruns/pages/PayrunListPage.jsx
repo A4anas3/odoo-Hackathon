@@ -3,7 +3,7 @@ import { PageContainer } from '@/components/layout/PageContainer';
 import { DataTable } from '@/components/table/DataTable';
 import { StatusBadge } from '@/components/badge/StatusBadge';
 import { Button } from '@/components/ui/Button';
-import { payrunApi, DEFAULT_PAYRUNS } from '../api/payrunApi';
+import { payrunApi } from '../api/payrunApi';
 import { useQuery } from '@tanstack/react-query';
 import { formatCurrency, formatDate } from '@/lib/utils/formatters';
 import { ROUTES } from '@/config/routes';

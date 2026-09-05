@@ -36,6 +36,21 @@ public class TimeOffController {
         return ResponseEntity.ok(timeOffService.getPendingTimeOffRequests());
     }
 
+    @GetMapping("/requests")
+    public ResponseEntity<List<TimeOffResponse>> getAllTimeOffRequests() {
+        return ResponseEntity.ok(timeOffService.getAllRequests());
+    }
+
+    @GetMapping("/types")
+    public ResponseEntity<List<com.odoo.hr.timeoff.dto.TimeOffTypeResponse>> getAllTypes() {
+        return ResponseEntity.ok(timeOffService.getAllTypes());
+    }
+
+    @GetMapping("/allocations/my")
+    public ResponseEntity<List<com.odoo.hr.timeoff.dto.TimeOffAllocationResponse>> getMyAllocations() {
+        return ResponseEntity.ok(timeOffService.getMyAllocations());
+    }
+
     @PatchMapping("/requests/{id}/review")
     public ResponseEntity<TimeOffResponse> reviewTimeOff(
             @PathVariable UUID id,

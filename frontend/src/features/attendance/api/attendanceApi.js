@@ -64,48 +64,34 @@ export const attendanceApi = {
       const res = await apiClient.get('/attendance/today');
       return res.data;
     } catch {
-      return {
-        checkIn: '09:02 AM',
-        checkOut: null,
-        status: 'PRESENT',
-        workedHours: '3h 15m',
-        checkedIn: true,
-      };
+      return null;
     }
   },
 
   async checkIn() {
-    try {
-      const res = await apiClient.post('/attendance/check-in');
-      return res.data;
-    } catch {
-      return {
-        checkIn: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        checkedIn: true,
-        status: 'PRESENT',
-      };
-    }
+    const res = await apiClient.post('/attendance/check-in');
+    return res.data;
   },
 
   async checkOut() {
-    try {
-      const res = await apiClient.post('/attendance/check-out');
-      return res.data;
-    } catch {
-      return {
-        checkOut: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        checkedIn: false,
-        status: 'PRESENT',
-      };
-    }
+    const res = await apiClient.post('/attendance/check-out');
+    return res.data;
   },
 
   async getAttendanceHistory(params = {}) {
     try {
       const res = await apiClient.get('/attendance/my', { params });
-      return res.data;
+      if (Array.isArray(res.data) && res.data.length > 0) return res.data;
+      const allRes = await apiClient.get('/attendance');
+      return Array.isArray(allRes.data) ? allRes.data : [];
     } catch {
-      return DEFAULT_ATTENDANCE_LOGS;
+      const allRes = await apiClient.get('/attendance');
+      return Array.isArray(allRes.data) ? allRes.data : [];
     }
+  },
+
+  async getAllAttendance() {
+    const res = await apiClient.get('/attendance');
+    return Array.isArray(res.data) ? res.data : [];
   },
 };

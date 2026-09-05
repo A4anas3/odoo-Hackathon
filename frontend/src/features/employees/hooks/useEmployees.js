@@ -27,7 +27,7 @@ export function useEmployees(filters = {}) {
         );
       }
       if (filters.department && filters.department !== 'ALL') {
-        filtered = filtered.filter((e) => e.department?.name === filters.department);
+        filtered = filtered.filter((e) => (e.departmentName || e.department?.name) === filters.department);
       }
       if (filters.status && filters.status !== 'ALL') {
         filtered = filtered.filter((e) => e.status === filters.status);

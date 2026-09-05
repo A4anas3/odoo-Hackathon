@@ -21,6 +21,11 @@ public class AttendanceController {
 
     private final AttendanceService attendanceService;
 
+    @GetMapping
+    public ResponseEntity<List<AttendanceResponse>> getAllAttendance() {
+        return ResponseEntity.ok(attendanceService.getAllAttendance());
+    }
+
     @PostMapping("/check-in")
     public ResponseEntity<AttendanceResponse> checkIn(@RequestBody(required = false) CheckInRequest request) {
         AttendanceResponse response = attendanceService.checkIn(request);

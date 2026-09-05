@@ -113,4 +113,10 @@ public class ContractService {
         Contract updated = contractRepository.save(contract);
         return ContractResponse.fromEntity(updated);
     }
+
+    public List<ContractResponse> getAllContracts() {
+        return contractRepository.findAll().stream()
+                .map(ContractResponse::fromEntity)
+                .toList();
+    }
 }

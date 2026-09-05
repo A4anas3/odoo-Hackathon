@@ -55,15 +55,15 @@ export function EmployeeListPage() {
     {
       header: 'Department',
       key: 'department',
-      render: (dept) => (
-        <span className="font-medium text-slate-700">{dept?.name || '—'}</span>
+      render: (dept, row) => (
+        <span className="font-medium text-slate-700">{row.departmentName || dept?.name || '—'}</span>
       ),
     },
     {
       header: 'Job Position',
       key: 'jobPosition',
-      render: (job) => (
-        <span className="text-slate-600">{job?.name || '—'}</span>
+      render: (job, row) => (
+        <span className="text-slate-600">{row.jobPositionTitle || job?.title || job?.name || '—'}</span>
       ),
     },
     {

@@ -10,38 +10,50 @@ import { StatusBadge } from '../../../components/badge/StatusBadge';
 import { useToast } from '../../../hooks/useToast';
 import { Briefcase, Plus } from 'lucide-react';
 
-const INITIAL_POSITIONS = [
-  { id: 'j1', title: 'Senior Fullstack Engineer', department: 'Engineering', targetStaff: 20, currentStaff: 18, status: 'ACTIVE' },
-  { id: 'j2', title: 'Frontend Architect', department: 'Engineering', targetStaff: 4, currentStaff: 3, status: 'ACTIVE' },
-  { id: 'j3', title: 'Regional Director', department: 'Management', targetStaff: 2, currentStaff: 2, status: 'ACTIVE' },
-  { id: 'j4', title: 'Senior Account Executive', department: 'Sales', targetStaff: 30, currentStaff: 25, status: 'ACTIVE' },
-  { id: 'j5', title: 'HR Generalist', department: 'Human Resources', targetStaff: 5, currentStaff: 4, status: 'ACTIVE' },
-  { id: 'j6', title: 'Financial Analyst', department: 'Finance', targetStaff: 8, currentStaff: 6, status: 'ACTIVE' },
-];
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { jobPositionApi } from '../api/jobPositionApi';
+import { departmentApi } from '../../departments/api/departmentApi';
 
 export function JobPositionListPage() {
   const toast = useToast();
-  const [positions, setPositions] = useState(INITIAL_POSITIONS);
+  const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newJob, setNewJob] = useState({ title: '', department: 'Engineering', targetStaff: 5 });
+  const [newJob, setNewJob] = useState({ title: '', departmentId: '', description: '', status: 'ACTIVE' });
+
+  const { data: positions = [], isLoading } = useQuery({
+    queryKey: ['jobPositions'],
+    queryFn: () => jobPositionApi.getAllJobPositions(),
+  });
+
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments'],
+    queryFn: () => departmentApi.getAllDepartments(),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data) => jobPositionApi.createJobPosition(data),
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['jobPositions'] });
+      setIsModalOpen(false);
+      setNewJob({ title: '', departmentId: '', description: '', status: 'ACTIVE' });
+      toast.success(`Job position ${created.title} created successfully.`);
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.message || 'Failed to create job position.');
+    },
+  });
 
   const handleCreate = () => {
     if (!newJob.title) {
       toast.error('Job position title is required.');
       return;
     }
-    const created = {
-      id: `j-${Date.now()}`,
-      title: newJob.title,
-      department: newJob.department,
-      targetStaff: Number(newJob.targetStaff),
-      currentStaff: 0,
-      status: 'ACTIVE',
-    };
-    setPositions([...positions, created]);
-    setIsModalOpen(false);
-    setNewJob({ title: '', department: 'Engineering', targetStaff: 5 });
-    toast.success(`Job position ${created.title} created.`);
+    const deptId = newJob.departmentId || (departments[0] ? departments[0].id : null);
+    if (!deptId) {
+      toast.error('Please select a department.');
+      return;
+    }
+    createMutation.mutate({ ...newJob, departmentId: deptId });
   };
 
   const columns = [

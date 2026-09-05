@@ -92,14 +92,16 @@ const INITIAL_RULES = [
 const CATEGORY_COLORS = {
   BASIC: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   ALLOWANCE: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  ALW: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   GROSS: 'bg-blue-50 text-blue-700 border-blue-200',
   DEDUCTION: 'bg-rose-50 text-rose-700 border-rose-200',
+  DED: 'bg-rose-50 text-rose-700 border-rose-200',
   NET: 'bg-purple-50 text-purple-700 border-purple-200 font-bold',
 };
 
 export function SalaryRuleBuilderPage() {
   const toast = useToast();
-  const [rules, setRules] = useState(INITIAL_RULES);
+  const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newRule, setNewRule] = useState({
     name: '',
@@ -107,8 +109,47 @@ export function SalaryRuleBuilderPage() {
     sequence: 8,
     category: 'ALLOWANCE',
     calculationType: 'FIXED',
-    amount: '',
+    value: '',
+    percentage: '',
     formula: '',
+  });
+
+  const { data: rules = [], isLoading } = useQuery({
+    queryKey: ['salaryRules'],
+    queryFn: () => salaryRuleApi.getAllRules(),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data) => salaryRuleApi.createRule(data),
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['salaryRules'] });
+      setIsModalOpen(false);
+      setNewRule({
+        name: '',
+        code: '',
+        sequence: 8,
+        category: 'ALLOWANCE',
+        calculationType: 'FIXED',
+        value: '',
+        percentage: '',
+        formula: '',
+      });
+      toast.success(`Salary rule ${created.name} created.`);
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.message || 'Failed to create salary rule.');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => salaryRuleApi.deleteRule(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salaryRules'] });
+      toast.success('Salary rule removed.');
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.message || 'Failed to delete salary rule.');
+    },
   });
 
   const handleAddRule = () => {
@@ -116,19 +157,17 @@ export function SalaryRuleBuilderPage() {
       toast.error('Please enter rule name and code.');
       return;
     }
-    const created = {
-      id: `rule-${Date.now()}`,
-      sequence: Number(newRule.sequence) || rules.length + 1,
-      name: newRule.name,
+    createMutation.mutate({
+      ...newRule,
       code: newRule.code.toUpperCase(),
-      category: newRule.category,
-      calculationType: newRule.calculationType,
-      formula: newRule.calculationType === 'FORMULA' ? newRule.formula : `${newRule.amount}`,
-      description: `Custom calculated ${newRule.category.toLowerCase()}`,
-    };
-    setRules([...rules, created]);
-    setIsModalOpen(false);
-    toast.success(`Salary rule ${created.name} added to execution chain.`);
+      value: newRule.value ? Number(newRule.value) : null,
+      percentage: newRule.percentage ? Number(newRule.percentage) : null,
+      sequence: Number(newRule.sequence) || (rules.length + 1),
+    });
+  };
+
+  const handleDelete = (id) => {
+    deleteMutation.mutate(id);
   };
 
   const columns = [

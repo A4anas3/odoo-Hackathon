@@ -51,46 +51,55 @@ export const timeoffApi = {
   async getMyRequests() {
     try {
       const res = await apiClient.get('/time-off/requests/my');
-      return res.data;
+      return Array.isArray(res.data) ? res.data : [];
     } catch {
-      return DEFAULT_LEAVE_REQUESTS;
+      return [];
+    }
+  },
+
+  async getAllRequests() {
+    try {
+      const res = await apiClient.get('/time-off/requests');
+      return Array.isArray(res.data) ? res.data : [];
+    } catch {
+      return [];
     }
   },
 
   async getPendingRequests() {
     try {
       const res = await apiClient.get('/time-off/requests/pending');
-      return res.data;
+      return Array.isArray(res.data) ? res.data : [];
     } catch {
-      return DEFAULT_LEAVE_REQUESTS.filter((r) => r.status === 'PENDING');
+      return [];
+    }
+  },
+
+  async getTypes() {
+    try {
+      const res = await apiClient.get('/time-off/types');
+      return Array.isArray(res.data) ? res.data : [];
+    } catch {
+      return [];
+    }
+  },
+
+  async getMyAllocations() {
+    try {
+      const res = await apiClient.get('/time-off/allocations/my');
+      return Array.isArray(res.data) ? res.data : [];
+    } catch {
+      return [];
     }
   },
 
   async submitRequest(data) {
-    try {
-      const res = await apiClient.post('/time-off/requests', data);
-      return res.data;
-    } catch {
-      const newReq = {
-        id: `req-${Date.now()}`,
-        employee: { name: 'Current User', department: 'General' },
-        status: 'PENDING',
-        appliedAt: new Date().toISOString().split('T')[0],
-        ...data,
-      };
-      DEFAULT_LEAVE_REQUESTS.unshift(newReq);
-      return newReq;
-    }
+    const res = await apiClient.post('/time-off/requests', data);
+    return res.data;
   },
 
-  async reviewRequest(id, status) {
-    try {
-      const res = await apiClient.patch(`/time-off/requests/${id}/review`, { status });
-      return res.data;
-    } catch {
-      const item = DEFAULT_LEAVE_REQUESTS.find((r) => r.id === id);
-      if (item) item.status = status;
-      return item;
-    }
+  async reviewRequest(id, status, rejectionReason = '') {
+    const res = await apiClient.patch(`/time-off/requests/${id}/review`, { status, rejectionReason });
+    return res.data;
   },
 };

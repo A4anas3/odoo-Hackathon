@@ -19,6 +19,11 @@ public class ContractController {
 
     private final ContractService contractService;
 
+    @GetMapping
+    public ResponseEntity<List<ContractResponse>> getAllContracts() {
+        return ResponseEntity.ok(contractService.getAllContracts());
+    }
+
     @GetMapping("/my")
     public ResponseEntity<List<ContractResponse>> getMyContracts() {
         return ResponseEntity.ok(contractService.getMyContracts());

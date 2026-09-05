@@ -1,0 +1,19 @@
+# IDEs and Editors
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# Build artifacts
+**/target/
+*.class
+
+# Log files
+*.log
+
+# OS generated
+Thumbs.db
+Desktop.ini
+.DS_Store

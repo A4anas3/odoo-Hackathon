@@ -1,0 +1,53 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: auth-service
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/authdb}
+    username: ${SPRING_DATASOURCE_USERNAME:authuser}
+    password: ${SPRING_DATASOURCE_PASSWORD:authpass}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate   # schema is owned by Flyway migrations, not Hibernate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+app:
+  jwt:
+    private-key-path: ${JWT_PRIVATE_KEY_PATH:classpath:keys/private_key.pem}
+    public-key-path: ${JWT_PUBLIC_KEY_PATH:classpath:keys/public_key.pem}
+    issuer: ${JWT_ISSUER:auth-service}
+    access-token-exp-minutes: ${JWT_ACCESS_TOKEN_EXP_MINUTES:15}
+    refresh-token-exp-days: ${JWT_REFRESH_TOKEN_EXP_DAYS:30}
+  security:
+    password-reset-token-exp-minutes: 30
+    max-refresh-tokens-per-user: 5
+
+logging:
+  level:
+    root: INFO
+    com.authservice: DEBUG
+    org.springframework.security: INFO

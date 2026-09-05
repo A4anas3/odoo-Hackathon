@@ -144,4 +144,60 @@ public class TimeOffService {
                 .map(TimeOffResponse::fromEntity)
                 .toList();
     }
+
+    @Transactional
+    public com.odoo.hr.timeoff.dto.TimeOffTypeResponse createTimeOffType(com.odoo.hr.timeoff.dto.CreateTimeOffTypeDto dto) {
+        if (timeOffTypeRepository.existsByNameIgnoreCase(dto.getName())) {
+            throw new ConflictException("A Time Off Type with name '" + dto.getName() + "' already exists.");
+        }
+        TimeOffType type = TimeOffType.builder()
+                .name(dto.getName().trim())
+                .description(dto.getDescription())
+                .paid(dto.getPaid() != null ? dto.getPaid() : true)
+                .requiresApproval(dto.getRequiresApproval() != null ? dto.getRequiresApproval() : true)
+                .status("ACTIVE")
+                .build();
+        TimeOffType saved = timeOffTypeRepository.save(type);
+        log.info("Created new TimeOffType: id={}, name={}", saved.getId(), saved.getName());
+        return com.odoo.hr.timeoff.dto.TimeOffTypeResponse.fromEntity(saved);
+    }
+
+    @Transactional
+    public com.odoo.hr.timeoff.dto.TimeOffAllocationResponse createAllocation(com.odoo.hr.timeoff.dto.CreateTimeOffAllocationDto dto) {
+        if (dto.getPeriodEnd().isBefore(dto.getPeriodStart())) {
+            throw new IllegalArgumentException("Period end date cannot be before period start date");
+        }
+
+        Employee employee = employeeRepository.findById(dto.getEmployeeId())
+                .orElseThrow(() -> new ResourceNotFoundException("Employee not found: " + dto.getEmployeeId()));
+
+        TimeOffType type = timeOffTypeRepository.findById(dto.getTimeOffTypeId())
+                .orElseThrow(() -> new ResourceNotFoundException("TimeOffType not found: " + dto.getTimeOffTypeId()));
+
+        Optional<TimeOffAllocation> existingOpt = timeOffAllocationRepository
+                .findByEmployeeIdAndTimeOffTypeId(employee.getId(), type.getId());
+
+        TimeOffAllocation allocation;
+        if (existingOpt.isPresent()) {
+            allocation = existingOpt.get();
+            allocation.setAllocatedDays(allocation.getAllocatedDays().add(dto.getAllocatedDays()));
+            allocation.setRemainingDays(allocation.getRemainingDays().add(dto.getAllocatedDays()));
+            allocation.setPeriodStart(dto.getPeriodStart());
+            allocation.setPeriodEnd(dto.getPeriodEnd());
+        } else {
+            allocation = TimeOffAllocation.builder()
+                    .employee(employee)
+                    .timeOffType(type)
+                    .periodStart(dto.getPeriodStart())
+                    .periodEnd(dto.getPeriodEnd())
+                    .allocatedDays(dto.getAllocatedDays())
+                    .usedDays(java.math.BigDecimal.ZERO)
+                    .remainingDays(dto.getAllocatedDays())
+                    .build();
+        }
+
+        TimeOffAllocation saved = timeOffAllocationRepository.save(allocation);
+        log.info("Created/Updated TimeOffAllocation: id={}, emp={}, days={}", saved.getId(), employee.getId(), dto.getAllocatedDays());
+        return com.odoo.hr.timeoff.dto.TimeOffAllocationResponse.fromEntity(saved);
+    }
 }

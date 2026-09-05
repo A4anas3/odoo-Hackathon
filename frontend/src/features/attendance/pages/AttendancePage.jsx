@@ -13,7 +13,9 @@ import { useMyProfile } from '../../employees/hooks/useEmployees';
 import { PERMISSIONS } from '../../../config/permissions';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../../../hooks/useToast';
-import { Clock, LogIn, LogOut, Search, AlertTriangle, Users, UserCheck } from 'lucide-react';
+import { Modal } from '../../../components/modal/Modal';
+import { FormField } from '../../../components/form/FormField';
+import { Clock, LogIn, LogOut, Search, AlertTriangle, Users, UserCheck, Edit3 } from 'lucide-react';
 import { formatDate, formatTime, formatHours } from '../../../lib/utils/formatters';
 
 export function AttendancePage() {
@@ -72,6 +74,50 @@ export function AttendancePage() {
       toast.error(err?.response?.data?.message || err.message || 'Failed to check out.');
     },
   });
+
+  // Regularization / Correction state & mutation
+  const [correctingLog, setCorrectingLog] = useState(null);
+  const [isCorrectModalOpen, setIsCorrectModalOpen] = useState(false);
+  const [correctionReason, setCorrectionReason] = useState('');
+  const [newCheckInTime, setNewCheckInTime] = useState('');
+  const [newCheckOutTime, setNewCheckOutTime] = useState('');
+
+  const correctMutation = useMutation({
+    mutationFn: ({ id, data }) => attendanceApi.correctAttendance(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
+      toast.success('Attendance record successfully corrected and recalculated.');
+      setIsCorrectModalOpen(false);
+      setCorrectingLog(null);
+      setCorrectionReason('');
+    },
+    onError: (err) => {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to correct attendance record.');
+    },
+  });
+
+  const handleOpenCorrectModal = (log) => {
+    setCorrectingLog(log);
+    setCorrectionReason(log.correctionReason || '');
+    setNewCheckInTime(log.checkIn ? new Date(log.checkIn).toISOString().slice(0, 16) : '');
+    setNewCheckOutTime(log.checkOut ? new Date(log.checkOut).toISOString().slice(0, 16) : '');
+    setIsCorrectModalOpen(true);
+  };
+
+  const handleSaveCorrection = () => {
+    if (!correctionReason.trim()) {
+      toast.error('Please enter an audit reason for the attendance correction.');
+      return;
+    }
+    correctMutation.mutate({
+      id: correctingLog.id,
+      data: {
+        reason: correctionReason.trim(),
+        newCheckIn: newCheckInTime ? new Date(newCheckInTime).toISOString() : null,
+        newCheckOut: newCheckOutTime ? new Date(newCheckOutTime).toISOString() : null,
+      },
+    });
+  };
 
   const isCheckedIn = !!todayAttendance?.checkIn && !todayAttendance?.checkOut;
   const isCheckedOut = !!todayAttendance?.checkOut;
@@ -161,6 +207,24 @@ export function AttendancePage() {
       key: 'status',
       render: (status) => <StatusBadge status={status || 'PRESENT'} />,
     },
+    ...(isAdminOrManager
+      ? [
+          {
+            header: 'Actions',
+            key: 'actions',
+            render: (_, row) => (
+              <Button
+                variant="ghost"
+                size="xs"
+                icon={Edit3}
+                onClick={() => handleOpenCorrectModal(row)}
+              >
+                Correct
+              </Button>
+            ),
+          },
+        ]
+      : []),
   ];
 
   const todayInDisplay = todayAttendance?.checkIn ? formatTime(todayAttendance.checkIn) : '—';
@@ -322,6 +386,65 @@ export function AttendancePage() {
             : 'You have not logged any attendance records yet. Use the Punch In button above to record your shift.'
         }
       />
+
+      {/* Attendance Regularization / Correction Modal */}
+      <Modal
+        isOpen={isCorrectModalOpen}
+        onClose={() => setIsCorrectModalOpen(false)}
+        title="Correct Attendance Record"
+        description={`Audit correction for ${correctingLog?.employeeName || 'staff'} on ${formatDate(correctingLog?.attendanceDate)}`}
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsCorrectModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              isLoading={correctMutation.isPending}
+              onClick={handleSaveCorrection}
+            >
+              Save Correction
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-xs">
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-[11px] leading-relaxed">
+            <strong>Audit Notice:</strong> Any modification to clock-in/out timestamps will automatically recalculate worked hours and overtime, and will record your manager ID as the corrector.
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label="Adjusted Check In">
+              <Input
+                type="datetime-local"
+                value={newCheckInTime}
+                onChange={(e) => setNewCheckInTime(e.target.value)}
+              />
+            </FormField>
+
+            <FormField label="Adjusted Check Out">
+              <Input
+                type="datetime-local"
+                value={newCheckOutTime}
+                onChange={(e) => setNewCheckOutTime(e.target.value)}
+              />
+            </FormField>
+          </div>
+
+          <FormField label="Mandatory Correction Reason" required>
+            <Input
+              placeholder="e.g. Employee forgot to punch out due to offsite client visit"
+              value={correctionReason}
+              onChange={(e) => setCorrectionReason(e.target.value)}
+            />
+          </FormField>
+        </div>
+      </Modal>
     </PageContainer>
   );
 }

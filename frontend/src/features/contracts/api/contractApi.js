@@ -24,6 +24,15 @@ export const contractApi = {
     return res.data;
   },
 
+  async getContractsByEmployeeId(employeeId) {
+    try {
+      const res = await apiClient.get(`/contracts/employee/${employeeId}`);
+      return Array.isArray(res.data) ? res.data : [];
+    } catch {
+      return [];
+    }
+  },
+
   async createContract(data) {
     const res = await apiClient.post('/contracts', data);
     return res.data;

@@ -41,4 +41,18 @@ export const attendanceApi = {
       return [];
     }
   },
+
+  async getEmployeeAttendance(employeeId, params = {}) {
+    try {
+      const res = await apiClient.get(`/attendance/employee/${employeeId}`, { params });
+      return Array.isArray(res.data) ? res.data : [];
+    } catch {
+      return [];
+    }
+  },
+
+  async correctAttendance(id, data) {
+    const res = await apiClient.patch(`/attendance/${id}/correct`, data);
+    return res.data;
+  },
 };

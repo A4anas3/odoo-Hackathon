@@ -10,4 +10,5 @@ import java.util.UUID;
 @Repository
 public interface TimeOffTypeRepository extends JpaRepository<TimeOffType, UUID> {
     Optional<TimeOffType> findByName(String name);
+    boolean existsByNameIgnoreCase(String name);
 }

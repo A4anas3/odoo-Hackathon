@@ -46,9 +46,23 @@ public class TimeOffController {
         return ResponseEntity.ok(timeOffService.getAllTypes());
     }
 
+    @PostMapping("/types")
+    public ResponseEntity<com.odoo.hr.timeoff.dto.TimeOffTypeResponse> createType(
+            @Valid @RequestBody com.odoo.hr.timeoff.dto.CreateTimeOffTypeDto request) {
+        com.odoo.hr.timeoff.dto.TimeOffTypeResponse created = timeOffService.createTimeOffType(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
     @GetMapping("/allocations/my")
     public ResponseEntity<List<com.odoo.hr.timeoff.dto.TimeOffAllocationResponse>> getMyAllocations() {
         return ResponseEntity.ok(timeOffService.getMyAllocations());
+    }
+
+    @PostMapping("/allocations")
+    public ResponseEntity<com.odoo.hr.timeoff.dto.TimeOffAllocationResponse> createAllocation(
+            @Valid @RequestBody com.odoo.hr.timeoff.dto.CreateTimeOffAllocationDto request) {
+        com.odoo.hr.timeoff.dto.TimeOffAllocationResponse created = timeOffService.createAllocation(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @PatchMapping("/requests/{id}/review")

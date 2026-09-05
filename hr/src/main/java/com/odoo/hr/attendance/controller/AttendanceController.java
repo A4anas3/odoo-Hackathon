@@ -61,4 +61,12 @@ public class AttendanceController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         return ResponseEntity.ok(attendanceService.getEmployeeAttendanceHistory(employeeId, from, to));
     }
+
+    @PatchMapping("/{id}/correct")
+    public ResponseEntity<AttendanceResponse> correctAttendance(
+            @PathVariable UUID id,
+            @jakarta.validation.Valid @RequestBody com.odoo.hr.attendance.dto.CorrectAttendanceRequest request) {
+        return ResponseEntity.ok(attendanceService.correctAttendance(
+                id, request.getReason(), request.getNewCheckIn(), request.getNewCheckOut()));
+    }
 }

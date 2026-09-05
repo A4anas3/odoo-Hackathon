@@ -44,3 +44,74 @@ export const PERMISSIONS = {
   CAN_VIEW_REPORTS: [ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.MANAGER, ROLES.HR, ROLES.HR_PAYROLL_MANAGER],
   CAN_ACCESS_ADMIN: [ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.MANAGER, ROLES.HR],
 };
+
+/**
+ * Standard Role-Permission Matrix Table (Spec § 3)
+ * Provides transparent, audit-ready permission mappings across HR and Payroll domains.
+ */
+export const ROLE_PERMISSIONS_TABLE = [
+  {
+    module: 'Employee Directory & Profiles',
+    permission: 'CAN_MANAGE_EMPLOYEES',
+    ADMIN: 'Full Access',
+    HR_MANAGER: 'Full Access',
+    HR_PAYROLL_MANAGER: 'View Only',
+    EMPLOYEE: 'Own Profile Only',
+  },
+  {
+    module: 'Employment Contracts & Wage',
+    permission: 'CAN_MANAGE_CONTRACTS',
+    ADMIN: 'Full Access',
+    HR_MANAGER: 'Full Access',
+    HR_PAYROLL_MANAGER: 'View Only',
+    EMPLOYEE: 'Own Contract Only',
+  },
+  {
+    module: 'Attendance & Regularization',
+    permission: 'CAN_MANAGE_ATTENDANCE',
+    ADMIN: 'Full Access',
+    HR_MANAGER: 'Full Access',
+    HR_PAYROLL_MANAGER: 'No Access',
+    EMPLOYEE: 'Own Punches Only',
+  },
+  {
+    module: 'Time Off Approvals & Allocations',
+    permission: 'CAN_APPROVE_LEAVE',
+    ADMIN: 'Full Access',
+    HR_MANAGER: 'Full Access',
+    HR_PAYROLL_MANAGER: 'No Access',
+    EMPLOYEE: 'Own Requests Only',
+  },
+  {
+    module: 'Working Schedules & Shifts',
+    permission: 'CAN_MANAGE_SCHEDULES',
+    ADMIN: 'Full Access',
+    HR_MANAGER: 'Full Access',
+    HR_PAYROLL_MANAGER: 'No Access',
+    EMPLOYEE: 'View Schedule',
+  },
+  {
+    module: 'Salary Structures & Rules',
+    permission: 'CAN_MANAGE_SALARY_STRUCTURES',
+    ADMIN: 'Full Access',
+    HR_MANAGER: 'No Clutter',
+    HR_PAYROLL_MANAGER: 'Full Access',
+    EMPLOYEE: 'No Access',
+  },
+  {
+    module: 'Payruns & Batch Computation',
+    permission: 'CAN_RUN_PAYROLL',
+    ADMIN: 'Full Access',
+    HR_MANAGER: 'No Clutter',
+    HR_PAYROLL_MANAGER: 'Full Access',
+    EMPLOYEE: 'Own Payslip Only',
+  },
+  {
+    module: 'Enterprise Reporting & Audit',
+    permission: 'CAN_VIEW_REPORTS',
+    ADMIN: 'Full Access',
+    HR_MANAGER: 'Full Access',
+    HR_PAYROLL_MANAGER: 'Full Access',
+    EMPLOYEE: 'No Access',
+  },
+];

@@ -82,9 +82,15 @@ public class EmployeeService {
                     .orElseThrow(() -> new ResourceNotFoundException("Manager employee not found: " + request.getManagerId()));
         }
 
+        String employeeCode = request.getEmployeeCode();
+        if (employeeCode == null || employeeCode.isBlank()) {
+            long count = employeeRepository.count() + 1;
+            employeeCode = String.format("EMP-%03d", count);
+        }
+
         Employee employee = Employee.builder()
                 .authProviderUserId(authProviderUserId)
-                .employeeCode(request.getEmployeeCode())
+                .employeeCode(employeeCode)
                 .firstName(request.getFirstName().trim())
                 .lastName(request.getLastName().trim())
                 .email(request.getEmail().trim().toLowerCase())

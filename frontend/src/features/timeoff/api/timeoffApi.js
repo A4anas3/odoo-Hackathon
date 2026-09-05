@@ -55,4 +55,14 @@ export const timeoffApi = {
     const res = await apiClient.patch(`/time-off/requests/${id}/review`, { status, rejectionReason });
     return res.data;
   },
+
+  async createTimeOffType(data) {
+    const res = await apiClient.post('/time-off/types', data);
+    return res.data;
+  },
+
+  async createAllocation(data) {
+    const res = await apiClient.post('/time-off/allocations', data);
+    return res.data;
+  },
 };

@@ -10,12 +10,13 @@ import { FormField } from '../../../components/form/FormField';
 import { Input } from '../../../components/form/Input';
 import { Select } from '../../../components/form/Select';
 import { timeoffApi } from '../api/timeoffApi';
+import { employeeApi } from '../../employees/api/employeeApi';
 import { useCurrentUser } from '../../../hooks/auth/useCurrentUser';
 import { useMyProfile } from '../../employees/hooks/useEmployees';
 import { PERMISSIONS } from '../../../config/permissions';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../../../hooks/useToast';
-import { Calendar, Plus, CheckCircle2, Clock, CalendarDays, Plane, Users, UserCheck, AlertTriangle } from 'lucide-react';
+import { Calendar, Plus, CheckCircle2, Clock, CalendarDays, Plane, Users, UserCheck, AlertTriangle, Layers } from 'lucide-react';
 import { formatDate } from '../../../lib/utils/formatters';
 
 export function TimeOffPage() {
@@ -36,6 +37,33 @@ export function TimeOffPage() {
     endDate: '',
     reason: '',
   });
+
+  // New Type Modal State
+  const [isTypeModalOpen, setIsTypeModalOpen] = useState(false);
+  const [newTypeData, setNewTypeData] = useState({
+    name: '',
+    description: '',
+    paid: true,
+    requiresApproval: true,
+  });
+
+  // Allocation Modal State
+  const [isAllocModalOpen, setIsAllocModalOpen] = useState(false);
+  const [newAllocData, setNewAllocData] = useState({
+    employeeId: '',
+    timeOffTypeId: '',
+    periodStart: '2026-01-01',
+    periodEnd: '2026-12-31',
+    allocatedDays: '',
+  });
+
+  // Query Employees (for allocation assignment)
+  const { data: employeesData } = useQuery({
+    queryKey: ['employees', 'list'],
+    queryFn: () => employeeApi.getAllEmployees(),
+    enabled: isAdminOrManager,
+  });
+  const allEmployees = employeesData?.content || (Array.isArray(employeesData) ? employeesData : []);
 
   // Query All Company Requests (only if admin/manager)
   const { data: allRequests = [], isLoading: isAllRequestsLoading } = useQuery({
@@ -72,6 +100,32 @@ export function TimeOffPage() {
     },
     onError: (err) => {
       toast.error(err?.response?.data?.message || err.message || 'Failed to submit leave application.');
+    },
+  });
+
+  const createTypeMutation = useMutation({
+    mutationFn: (data) => timeoffApi.createTimeOffType(data),
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['timeoff', 'types'] });
+      toast.success(`Leave type "${created.name || 'New Type'}" created successfully.`);
+      setIsTypeModalOpen(false);
+      setNewTypeData({ name: '', description: '', paid: true, requiresApproval: true });
+    },
+    onError: (err) => {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to create leave type.');
+    },
+  });
+
+  const createAllocMutation = useMutation({
+    mutationFn: (data) => timeoffApi.createAllocation(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['timeoff', 'allocations'] });
+      toast.success('Leave balance allocated successfully.');
+      setIsAllocModalOpen(false);
+      setNewAllocData({ employeeId: '', timeOffTypeId: '', periodStart: '2026-01-01', periodEnd: '2026-12-31', allocatedDays: '' });
+    },
+    onError: (err) => {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to allocate leave balance.');
     },
   });
 
@@ -201,22 +255,44 @@ export function TimeOffPage() {
           : 'Track your personal leave balances and submit time off requests.'
       }
       actions={
-        <Button
-          variant={isEmployeeInactive ? 'secondary' : 'primary'}
-          size="sm"
-          icon={Plus}
-          disabled={isEmployeeInactive}
-          title={isEmployeeInactive ? 'Leave requests are disabled for inactive accounts' : undefined}
-          onClick={() => {
-            if (isEmployeeInactive) {
-              toast.error('Leave requests are disabled for inactive accounts.');
-              return;
-            }
-            setIsModalOpen(true);
-          }}
-        >
-          {isEmployeeInactive ? `Account ${profile?.status || 'Inactive'}` : 'Request Time Off'}
-        </Button>
+        <div className="flex items-center gap-2">
+          {isAdminOrManager && (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={Layers}
+                onClick={() => setIsTypeModalOpen(true)}
+              >
+                New Leave Type
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={CalendarDays}
+                onClick={() => setIsAllocModalOpen(true)}
+              >
+                Allocate Days
+              </Button>
+            </>
+          )}
+          <Button
+            variant={isEmployeeInactive ? 'secondary' : 'primary'}
+            size="sm"
+            icon={Plus}
+            disabled={isEmployeeInactive}
+            title={isEmployeeInactive ? 'Leave requests are disabled for inactive accounts' : undefined}
+            onClick={() => {
+              if (isEmployeeInactive) {
+                toast.error('Leave requests are disabled for inactive accounts.');
+                return;
+              }
+              setIsModalOpen(true);
+            }}
+          >
+            {isEmployeeInactive ? `Account ${profile?.status || 'Inactive'}` : 'Request Time Off'}
+          </Button>
+        </div>
       }
     >
       {/* Inactive Profile Alert Banner */}
@@ -412,6 +488,171 @@ export function TimeOffPage() {
               Submit Application
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* New Leave Type Modal */}
+      <Modal
+        isOpen={isTypeModalOpen}
+        onClose={() => setIsTypeModalOpen(false)}
+        title="Configure New Time Off Type"
+        description="Add a customizable leave policy category for the company"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <Button variant="secondary" size="sm" onClick={() => setIsTypeModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              isLoading={createTypeMutation.isPending}
+              onClick={() => {
+                if (!newTypeData.name.trim()) {
+                  toast.error('Please enter a leave type name.');
+                  return;
+                }
+                createTypeMutation.mutate(newTypeData);
+              }}
+            >
+              Create Leave Type
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-xs">
+          <FormField label="Leave Type Name" required>
+            <Input
+              placeholder="e.g. Parental Leave, Compassionate Leave, Study Leave"
+              value={newTypeData.name}
+              onChange={(e) => setNewTypeData((prev) => ({ ...prev, name: e.target.value }))}
+            />
+          </FormField>
+
+          <FormField label="Policy Description">
+            <textarea
+              className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-[#714B67]"
+              rows={2}
+              placeholder="Guidelines for eligibility and documentation"
+              value={newTypeData.description}
+              onChange={(e) => setNewTypeData((prev) => ({ ...prev, description: e.target.value }))}
+            />
+          </FormField>
+
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                className="rounded border-slate-300 text-[#714B67] focus:ring-[#714B67]"
+                checked={newTypeData.paid}
+                onChange={(e) => setNewTypeData((prev) => ({ ...prev, paid: e.target.checked }))}
+              />
+              <span className="font-medium text-slate-700">Paid Leave</span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                className="rounded border-slate-300 text-[#714B67] focus:ring-[#714B67]"
+                checked={newTypeData.requiresApproval}
+                onChange={(e) => setNewTypeData((prev) => ({ ...prev, requiresApproval: e.target.checked }))}
+              />
+              <span className="font-medium text-slate-700">Requires Approval</span>
+            </label>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Assign Leave Allocation Modal */}
+      <Modal
+        isOpen={isAllocModalOpen}
+        onClose={() => setIsAllocModalOpen(false)}
+        title="Assign Leave Allocation"
+        description="Credit authorized vacation/leave days to an employee's annual balance"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <Button variant="secondary" size="sm" onClick={() => setIsAllocModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              isLoading={createAllocMutation.isPending}
+              onClick={() => {
+                if (!newAllocData.employeeId || !newAllocData.timeOffTypeId || !newAllocData.allocatedDays) {
+                  toast.error('Please select an employee, leave type, and specify allocated days.');
+                  return;
+                }
+                createAllocMutation.mutate({
+                  employeeId: newAllocData.employeeId,
+                  timeOffTypeId: newAllocData.timeOffTypeId,
+                  periodStart: newAllocData.periodStart,
+                  periodEnd: newAllocData.periodEnd,
+                  allocatedDays: Number(newAllocData.allocatedDays),
+                });
+              }}
+            >
+              Allocate Days
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-xs">
+          <FormField label="Target Employee" required>
+            <Select
+              options={[
+                { value: '', label: 'Select Employee...' },
+                ...allEmployees.map((e) => ({
+                  value: e.id,
+                  label: `${e.firstName} ${e.lastName} (${e.employeeCode || e.email})`,
+                })),
+              ]}
+              value={newAllocData.employeeId}
+              onChange={(e) => setNewAllocData((prev) => ({ ...prev, employeeId: e.target.value }))}
+            />
+          </FormField>
+
+          <FormField label="Leave Type" required>
+            <Select
+              options={[
+                { value: '', label: 'Select Leave Type...' },
+                ...leaveTypes.map((t) => ({
+                  value: t.id,
+                  label: `${t.name} ${t.paid ? '(Paid)' : '(Unpaid)'}`,
+                })),
+              ]}
+              value={newAllocData.timeOffTypeId}
+              onChange={(e) => setNewAllocData((prev) => ({ ...prev, timeOffTypeId: e.target.value }))}
+            />
+          </FormField>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label="Validity Start Date" required>
+              <Input
+                type="date"
+                value={newAllocData.periodStart}
+                onChange={(e) => setNewAllocData((prev) => ({ ...prev, periodStart: e.target.value }))}
+              />
+            </FormField>
+
+            <FormField label="Validity End Date" required>
+              <Input
+                type="date"
+                value={newAllocData.periodEnd}
+                onChange={(e) => setNewAllocData((prev) => ({ ...prev, periodEnd: e.target.value }))}
+              />
+            </FormField>
+          </div>
+
+          <FormField label="Allocated Days Count" required>
+            <Input
+              type="number"
+              min="0.5"
+              step="0.5"
+              placeholder="e.g. 15 or 24"
+              value={newAllocData.allocatedDays}
+              onChange={(e) => setNewAllocData((prev) => ({ ...prev, allocatedDays: e.target.value }))}
+            />
+          </FormField>
         </div>
       </Modal>
     </PageContainer>

@@ -9,7 +9,10 @@ import { Button } from '../../../components/ui/Button';
 import { Spinner } from '../../../components/loading/Spinner';
 import { ErrorState } from '../../../components/error/ErrorState';
 import { useEmployee, useUpdateEmployee } from '../hooks/useEmployees';
-import { formatDate, formatCurrency } from '../../../lib/utils/formatters';
+import { useQuery } from '@tanstack/react-query';
+import { contractApi } from '../../contracts/api/contractApi';
+import { attendanceApi } from '../../attendance/api/attendanceApi';
+import { formatDate, formatCurrency, formatTime, formatHours } from '../../../lib/utils/formatters';
 import { ROUTES } from '../../../config/routes';
 import {
   Mail,
@@ -26,6 +29,8 @@ import {
   Shield,
   UserX,
   UserCheck,
+  Inbox,
+  Plus,
 } from 'lucide-react';
 
 export function EmployeeDetailPage() {
@@ -35,6 +40,19 @@ export function EmployeeDetailPage() {
 
   const { data: employee, isLoading, isError, refetch } = useEmployee(id);
   const updateMutation = useUpdateEmployee();
+
+  const { data: contracts = [], isLoading: isContractsLoading } = useQuery({
+    queryKey: ['contracts', 'employee', id],
+    queryFn: () => contractApi.getContractsByEmployeeId(id),
+    enabled: !!id,
+  });
+  const activeContract = contracts.find((c) => c.status === 'RUNNING') || contracts[0] || null;
+
+  const { data: attendanceLogs = [], isLoading: isAttendanceLoading } = useQuery({
+    queryKey: ['attendance', 'employee', id],
+    queryFn: () => attendanceApi.getEmployeeAttendance(id),
+    enabled: !!id,
+  });
 
   const handleStatusChange = async (newStatus) => {
     await updateMutation.mutateAsync({
@@ -195,7 +213,7 @@ export function EmployeeDetailPage() {
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-500">Manager / Supervisor</span>
-                <span className="font-semibold text-slate-800">{employee.manager?.firstName ? `${employee.manager.firstName} ${employee.manager.lastName}` : 'Direct Report (None)'}</span>
+                <span className="font-semibold text-slate-800">{employee.managerName || (employee.manager?.firstName ? `${employee.manager.firstName} ${employee.manager.lastName}` : 'Direct Report (None)')}</span>
               </div>
               <div className="flex justify-between py-1.5">
                 <span className="text-slate-500">Date of Joining</span>
@@ -209,19 +227,19 @@ export function EmployeeDetailPage() {
             <CardContent className="space-y-3 text-xs">
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-500">Bank Name</span>
-                <span className="font-semibold text-slate-800">{employee.bankName || 'Silicon Valley Bank'}</span>
+                <span className="font-semibold text-slate-800">{employee.bankName || '—'}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-500">Account Number</span>
-                <span className="font-mono font-semibold text-slate-800">{employee.bankAccountNo || '•••• 9482'}</span>
+                <span className="font-mono font-semibold text-slate-800">{employee.bankAccountNo || '—'}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-500">IFSC / Routing Code</span>
-                <span className="font-mono font-semibold text-slate-800">{employee.ifscCode || 'SVB00192'}</span>
+                <span className="font-mono font-semibold text-slate-800">{employee.ifscCode || '—'}</span>
               </div>
               <div className="flex justify-between py-1.5">
                 <span className="text-slate-500">Tax Identifier</span>
-                <span className="font-mono font-semibold text-slate-800">TX-902-881</span>
+                <span className="font-mono font-semibold text-slate-800">{employee.taxIdentifier || '—'}</span>
               </div>
             </CardContent>
           </Card>
@@ -232,47 +250,72 @@ export function EmployeeDetailPage() {
         <Card>
           <CardHeader
             title="Employment Contract"
-            subtitle="Active terms, salary structure, and scheduled working hours"
+            subtitle="Active terms, salary structure, and compensation terms"
+            actions={
+              !activeContract && (
+                <Button
+                  variant="primary"
+                  size="xs"
+                  icon={Plus}
+                  onClick={() => navigate(ROUTES.CONTRACT_NEW, { state: { employeeId: employee.id } })}
+                >
+                  Create Contract
+                </Button>
+              )
+            }
           />
           <CardContent className="p-4 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-                <span className="text-[11px] text-slate-400 font-semibold block">Monthly Wage</span>
-                <span className="text-lg font-bold text-slate-900 mt-1 block">{formatCurrency(6500)}</span>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-                <span className="text-[11px] text-slate-400 font-semibold block">Salary Structure</span>
-                <span className="text-sm font-semibold text-slate-900 mt-1 block">Full-time Regular</span>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-                <span className="text-[11px] text-slate-400 font-semibold block">Working Schedule</span>
-                <span className="text-sm font-semibold text-slate-900 mt-1 block">Standard 40h / Week</span>
-              </div>
-            </div>
+            {activeContract ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                    <span className="text-[11px] text-slate-400 font-semibold block">Monthly Wage</span>
+                    <span className="text-lg font-bold text-slate-900 mt-1 block">
+                      {activeContract.salary != null ? formatCurrency(activeContract.salary) : '—'}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                    <span className="text-[11px] text-slate-400 font-semibold block">Salary Structure</span>
+                    <span className="text-sm font-semibold text-slate-900 mt-1 block">
+                      {activeContract.salaryStructureName || 'Standard Structure'}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                    <span className="text-[11px] text-slate-400 font-semibold block">Contract Status</span>
+                    <div className="mt-1">
+                      <StatusBadge status={activeContract.status || 'RUNNING'} />
+                    </div>
+                  </div>
+                </div>
 
-            <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
-              <div className="bg-slate-50 px-3.5 py-2.5 font-semibold text-slate-700 border-b border-slate-200">
-                Salary Component Breakdown
+                <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
+                  <div className="bg-slate-50 px-3.5 py-2.5 font-semibold text-slate-700 border-b border-slate-200">
+                    Contract Parameters
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    <div className="px-3.5 py-2 flex justify-between">
+                      <span className="text-slate-500">Effective Period</span>
+                      <span className="font-semibold text-slate-800">
+                        {formatDate(activeContract.startDate)} – {activeContract.endDate ? formatDate(activeContract.endDate) : 'Indefinite'}
+                      </span>
+                    </div>
+                    <div className="px-3.5 py-2 flex justify-between">
+                      <span className="text-slate-500">Contract Reference</span>
+                      <span className="font-mono text-slate-800">{activeContract.name || activeContract.id?.slice(0, 8) || '—'}</span>
+                    </div>
+                    <div className="px-3.5 py-2 flex justify-between bg-slate-50/50 font-bold text-slate-900">
+                      <span>Agreed Wage</span>
+                      <span>{activeContract.salary != null ? formatCurrency(activeContract.salary) : '—'}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="divide-y divide-slate-100">
-                <div className="px-3.5 py-2 flex justify-between">
-                  <span>Basic Salary (50%)</span>
-                  <span className="font-semibold">{formatCurrency(3250)}</span>
-                </div>
-                <div className="px-3.5 py-2 flex justify-between">
-                  <span>House Rent Allowance (HRA 25%)</span>
-                  <span className="font-semibold">{formatCurrency(1625)}</span>
-                </div>
-                <div className="px-3.5 py-2 flex justify-between">
-                  <span>Special Allowance</span>
-                  <span className="font-semibold">{formatCurrency(1625)}</span>
-                </div>
-                <div className="px-3.5 py-2 flex justify-between bg-slate-50/50 font-bold text-slate-900">
-                  <span>Total Gross</span>
-                  <span>{formatCurrency(6500)}</span>
-                </div>
+            ) : (
+              <div className="py-12 text-center text-slate-400">
+                <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-1 stroke-1" />
+                No active employment contract found for this employee.
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -293,27 +336,24 @@ export function EmployeeDetailPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  <tr>
-                    <td className="p-3 font-medium">04 Sep 2026</td>
-                    <td className="p-3">09:02 AM</td>
-                    <td className="p-3">06:05 PM</td>
-                    <td className="p-3">8h 03m</td>
-                    <td className="p-3"><StatusBadge status="PRESENT" /></td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 font-medium">03 Sep 2026</td>
-                    <td className="p-3">08:58 AM</td>
-                    <td className="p-3">05:59 PM</td>
-                    <td className="p-3">8h 01m</td>
-                    <td className="p-3"><StatusBadge status="PRESENT" /></td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 font-medium">02 Sep 2026</td>
-                    <td className="p-3">09:25 AM</td>
-                    <td className="p-3">06:15 PM</td>
-                    <td className="p-3">7h 50m</td>
-                    <td className="p-3"><StatusBadge status="LATE" /></td>
-                  </tr>
+                  {attendanceLogs.length > 0 ? (
+                    attendanceLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-50/60">
+                        <td className="p-3 font-medium">{formatDate(log.attendanceDate)}</td>
+                        <td className="p-3 font-mono">{log.checkIn ? formatTime(log.checkIn) : '—'}</td>
+                        <td className="p-3 font-mono">{log.checkOut ? formatTime(log.checkOut) : '—'}</td>
+                        <td className="p-3">{log.workedHours > 0 ? formatHours(log.workedHours) : '—'}</td>
+                        <td className="p-3"><StatusBadge status={log.status || 'PRESENT'} /></td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-slate-400">
+                        <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-1 stroke-1" />
+                        No attendance records logged for this employee.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -325,41 +365,9 @@ export function EmployeeDetailPage() {
         <Card>
           <CardHeader title="Issued Payslips" />
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
-                  <tr>
-                    <th className="p-3">Period</th>
-                    <th className="p-3">Gross Salary</th>
-                    <th className="p-3">Deductions</th>
-                    <th className="p-3">Net Pay</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  <tr>
-                    <td className="p-3 font-medium">August 2026</td>
-                    <td className="p-3">{formatCurrency(6500)}</td>
-                    <td className="p-3 text-rose-600">{formatCurrency(650)}</td>
-                    <td className="p-3 font-bold text-emerald-700">{formatCurrency(5850)}</td>
-                    <td className="p-3"><StatusBadge status="PAID" /></td>
-                    <td className="p-3 text-right">
-                      <Button variant="ghost" size="xs">View Payslip</Button>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 font-medium">July 2026</td>
-                    <td className="p-3">{formatCurrency(6500)}</td>
-                    <td className="p-3 text-rose-600">{formatCurrency(650)}</td>
-                    <td className="p-3 font-bold text-emerald-700">{formatCurrency(5850)}</td>
-                    <td className="p-3"><StatusBadge status="PAID" /></td>
-                    <td className="p-3 text-right">
-                      <Button variant="ghost" size="xs">View Payslip</Button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            <div className="py-12 text-center text-slate-400">
+              <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-1 stroke-1" />
+              No individual payroll disbursements found for this profile.
             </div>
           </CardContent>
         </Card>

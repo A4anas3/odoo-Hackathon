@@ -7,7 +7,7 @@ import { FormField } from '../../../components/form/FormField';
 import { Input } from '../../../components/form/Input';
 import { Select } from '../../../components/form/Select';
 import { Button } from '../../../components/ui/Button';
-import { useCreateEmployee, useUpdateEmployee, useEmployee } from '../hooks/useEmployees';
+import { useCreateEmployee, useUpdateEmployee, useEmployee, useEmployees } from '../hooks/useEmployees';
 import { departmentApi } from '../../departments/api/departmentApi';
 import { jobPositionApi } from '../../jobpositions/api/jobPositionApi';
 import { ROUTES } from '../../../config/routes';
@@ -19,6 +19,7 @@ export function EmployeeFormPage() {
   const isEdit = Boolean(id);
 
   const { data: existingEmployee } = useEmployee(id);
+  const { data: allEmployees = [] } = useEmployees();
   const createMutation = useCreateEmployee();
   const updateMutation = useUpdateEmployee();
 
@@ -41,6 +42,8 @@ export function EmployeeFormPage() {
     address: '',
     departmentName: '',
     jobPositionName: '',
+    employeeCode: '',
+    managerId: '',
     employeeType: 'FULL_TIME',
     status: 'ACTIVE',
     joiningDate: new Date().toISOString().split('T')[0],
@@ -72,8 +75,10 @@ export function EmployeeFormPage() {
         phone: existingEmployee.phone || '',
         dateOfBirth: existingEmployee.dateOfBirth || '',
         address: existingEmployee.address || '',
-        departmentName: existingEmployee.department?.name || 'Engineering',
-        jobPositionName: existingEmployee.jobPosition?.name || 'Fullstack Engineer',
+        departmentName: existingEmployee.department?.name || existingEmployee.departmentName || 'Engineering',
+        jobPositionName: existingEmployee.jobPosition?.name || existingEmployee.jobPositionTitle || 'Fullstack Engineer',
+        employeeCode: existingEmployee.employeeCode || '',
+        managerId: existingEmployee.managerId || existingEmployee.manager?.id || '',
         employeeType: existingEmployee.employeeType || 'FULL_TIME',
         status: existingEmployee.status || 'ACTIVE',
         joiningDate: existingEmployee.joiningDate || '',
@@ -107,6 +112,7 @@ export function EmployeeFormPage() {
     const selectedJob = jobPositions.find((j) => (j.title || j.name) === formData.jobPositionName);
 
     const payload = {
+      employeeCode: formData.employeeCode?.trim() || null,
       firstName: formData.firstName,
       lastName: formData.lastName,
       email: formData.email,
@@ -115,6 +121,7 @@ export function EmployeeFormPage() {
       address: formData.address,
       departmentId: selectedDept?.id || null,
       jobPositionId: selectedJob?.id || null,
+      managerId: formData.managerId || null,
       employeeType: formData.employeeType,
       status: formData.status,
       joiningDate: formData.joiningDate || null,
@@ -208,6 +215,14 @@ export function EmployeeFormPage() {
             2. Organization & Employment Placement
           </div>
           <CardContent className="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <FormField label="Employee Code (Badge ID)">
+              <Input
+                value={formData.employeeCode}
+                onChange={(e) => handleChange('employeeCode', e.target.value)}
+                placeholder="e.g. EMP-010 (leave blank to auto-generate)"
+              />
+            </FormField>
+
             <FormField label="Department">
               <Select
                 options={
@@ -237,6 +252,22 @@ export function EmployeeFormPage() {
                   placeholder="e.g. Fullstack Engineer"
                 />
               )}
+            </FormField>
+
+            <FormField label="Reporting Manager / Supervisor">
+              <Select
+                options={[
+                  { value: '', label: 'None (Direct Executive / Top-level)' },
+                  ...allEmployees
+                    .filter((emp) => !isEdit || emp.id !== id)
+                    .map((emp) => ({
+                      value: emp.id,
+                      label: `${emp.firstName} ${emp.lastName}${emp.employeeCode ? ` (${emp.employeeCode})` : ''}`,
+                    })),
+                ]}
+                value={formData.managerId}
+                onChange={(e) => handleChange('managerId', e.target.value)}
+              />
             </FormField>
 
             <FormField label="Employment Type">

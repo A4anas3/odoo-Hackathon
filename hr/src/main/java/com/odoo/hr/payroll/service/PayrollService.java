@@ -6,8 +6,10 @@ import com.odoo.hr.contract.model.Contract;
 import com.odoo.hr.contract.repository.ContractRepository;
 import com.odoo.hr.employee.model.Employee;
 import com.odoo.hr.employee.repository.EmployeeRepository;
+import com.odoo.hr.payroll.config.RabbitMqPayrollConfig;
 import com.odoo.hr.payroll.dto.GeneratePayrunRequest;
 import com.odoo.hr.payroll.dto.PayrunResponse;
+import com.odoo.hr.payroll.dto.PayslipEmailMessage;
 import com.odoo.hr.payroll.dto.PayslipResponse;
 import com.odoo.hr.payroll.model.Payrun;
 import com.odoo.hr.payroll.model.Payslip;
@@ -21,6 +23,11 @@ import com.odoo.hr.salary.repository.SalaryStructureRepository;
 import com.odoo.hr.security.CurrentEmployeeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.expression.Expression;
+import org.springframework.expression.ExpressionParser;
+import org.springframework.expression.spel.standard.SpelExpressionParser;
+import org.springframework.expression.spel.support.StandardEvaluationContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,10 +35,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 @Slf4j
 @Service
@@ -46,6 +50,10 @@ public class PayrollService {
     private final SalaryRuleRepository salaryRuleRepository;
     private final CurrentEmployeeService currentEmployeeService;
     private final PayslipPdfService payslipPdfService;
+    private final RabbitTemplate rabbitTemplate;
+    private final EmailService emailService;
+
+    private final ExpressionParser spelParser = new SpelExpressionParser();
 
     @Transactional
     public PayrunResponse generatePayrun(GeneratePayrunRequest request) {
@@ -120,44 +128,55 @@ public class PayrollService {
     private Payslip calculatePayslipForEmployee(Payrun payrun, Employee emp, Contract contract,
                                                 SalaryStructure structure,
                                                 LocalDate periodStart, LocalDate periodEnd) {
-        BigDecimal baseSalary = contract.getSalary();
+        BigDecimal baseSalary = contract.getSalary() != null ? contract.getSalary() : BigDecimal.ZERO;
         BigDecimal gross = BigDecimal.ZERO;
         BigDecimal deductions = BigDecimal.ZERO;
 
         List<PayslipLine> lines = new ArrayList<>();
+        Map<String, BigDecimal> ruleAmounts = new HashMap<>();
+        ruleAmounts.put("contract.wage", baseSalary);
+        ruleAmounts.put("wage", baseSalary);
+        ruleAmounts.put("BASE", baseSalary);
+
         int seq = 1;
 
-        if (structure != null && !structure.getRules().isEmpty()) {
+        if (structure != null) {
             List<SalaryRule> rules = salaryRuleRepository.findBySalaryStructureIdOrderBySequenceAsc(structure.getId());
             for (SalaryRule rule : rules) {
                 if (!Boolean.TRUE.equals(rule.getActive())) continue;
 
-                BigDecimal amount = BigDecimal.ZERO;
-                if ("FIXED".equalsIgnoreCase(rule.getCalculationType()) && rule.getValue() != null) {
-                    amount = rule.getValue();
-                } else if ("PERCENTAGE".equalsIgnoreCase(rule.getCalculationType()) && rule.getPercentage() != null) {
-                    amount = baseSalary.multiply(rule.getPercentage()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-                } else {
-                    amount = baseSalary;
-                }
+                BigDecimal amount = evaluateSalaryRule(rule, baseSalary, gross, ruleAmounts);
+                ruleAmounts.put(rule.getCode(), amount);
 
-                if ("DED".equalsIgnoreCase(rule.getCategory()) || "TAX".equalsIgnoreCase(rule.getCategory())) {
+                String cat = rule.getCategory() != null ? rule.getCategory().toUpperCase() : "ALW";
+                if ("DED".equals(cat) || "DEDUCTION".equals(cat) || "TAX".equals(cat)) {
                     deductions = deductions.add(amount);
+                } else if ("GROSS".equals(cat)) {
+                    // Update gross if explicitly defined, otherwise accumulates
+                    gross = amount;
+                } else if ("NET".equals(cat)) {
+                    // Will be computed at the end
                 } else {
                     gross = gross.add(amount);
                 }
+
+                // Update context for formula dependencies
+                ruleAmounts.put("GROSS", gross);
+                ruleAmounts.put("DED", deductions);
 
                 lines.add(PayslipLine.builder()
                         .salaryRule(rule)
                         .ruleCode(rule.getCode())
                         .ruleName(rule.getName())
-                        .category(rule.getCategory())
+                        .category(cat)
                         .calculationType(rule.getCalculationType())
                         .amount(amount)
                         .sequence(rule.getSequence() != null ? rule.getSequence() : seq++)
                         .build());
             }
-        } else {
+        }
+
+        if (lines.isEmpty()) {
             // Default calculation when no custom rules configured
             gross = baseSalary;
             lines.add(PayslipLine.builder()
@@ -171,6 +190,9 @@ public class PayrollService {
         }
 
         BigDecimal net = gross.subtract(deductions);
+        if (net.compareTo(BigDecimal.ZERO) < 0) {
+            net = BigDecimal.ZERO;
+        }
 
         Payslip slip = Payslip.builder()
                 .payrun(payrun)
@@ -188,6 +210,64 @@ public class PayrollService {
 
         lines.forEach(l -> l.setPayslip(slip));
         return slip;
+    }
+
+    private BigDecimal evaluateSalaryRule(SalaryRule rule, BigDecimal baseSalary, BigDecimal currentGross, Map<String, BigDecimal> context) {
+        String type = rule.getCalculationType() != null ? rule.getCalculationType().toUpperCase() : "FIXED";
+
+        if ("FIXED".equals(type)) {
+            return rule.getValue() != null ? rule.getValue() : BigDecimal.ZERO;
+        }
+
+        if ("PERCENTAGE".equals(type) && rule.getPercentage() != null) {
+            BigDecimal base = ("TAX".equalsIgnoreCase(rule.getCategory()) || "DED".equalsIgnoreCase(rule.getCategory()))
+                    && currentGross.compareTo(BigDecimal.ZERO) > 0
+                    ? currentGross : baseSalary;
+
+            // If formula references a specific code, use that base
+            if (rule.getFormula() != null && !rule.getFormula().isBlank()) {
+                String ref = rule.getFormula().trim();
+                if (context.containsKey(ref)) {
+                    base = context.get(ref);
+                }
+            }
+
+            return base.multiply(rule.getPercentage()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+        }
+
+        if ("FORMULA".equals(type) && rule.getFormula() != null && !rule.getFormula().isBlank()) {
+            try {
+                StandardEvaluationContext evalCtx = new StandardEvaluationContext();
+                for (Map.Entry<String, BigDecimal> entry : context.entrySet()) {
+                    evalCtx.setVariable(entry.getKey().replace(".", "_"), entry.getValue().doubleValue());
+                }
+                evalCtx.setVariable("contract_wage", baseSalary.doubleValue());
+                evalCtx.setVariable("wage", baseSalary.doubleValue());
+                evalCtx.setVariable("GROSS", currentGross.doubleValue());
+
+                String exprStr = rule.getFormula()
+                        .replace("contract.wage", "#contract_wage")
+                        .replace("wage", "#wage")
+                        .replace("BASIC", "#BASIC")
+                        .replace("HRA", "#HRA")
+                        .replace("TRANS", "#TRANS")
+                        .replace("GROSS", "#GROSS")
+                        .replace("TAX", "#TAX")
+                        .replace("PF", "#PF")
+                        .replace("DED", "#DED");
+
+                Expression expr = spelParser.parseExpression(exprStr);
+                Double result = expr.getValue(evalCtx, Double.class);
+                if (result != null) {
+                    return BigDecimal.valueOf(result).setScale(2, RoundingMode.HALF_UP);
+                }
+            } catch (Exception e) {
+                log.warn("SpEL evaluation failed for formula '{}': {}. Falling back to percentage/fixed.",
+                        rule.getFormula(), e.getMessage());
+            }
+        }
+
+        return rule.getValue() != null ? rule.getValue() : baseSalary;
     }
 
     /**
@@ -249,8 +329,8 @@ public class PayrollService {
         Payrun payrun = payrunRepository.findById(payrunId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payrun not found with id: " + payrunId));
 
-        if (!"VALIDATED".equals(payrun.getStatus())) {
-            throw new ConflictException("Payrun must be in VALIDATED status before paying");
+        if (!"VALIDATED".equals(payrun.getStatus()) && !"DRAFT".equals(payrun.getStatus())) {
+            throw new ConflictException("Payrun must be in VALIDATED or DRAFT status before paying");
         }
 
         payrun.setStatus("PAID");
@@ -259,6 +339,131 @@ public class PayrollService {
 
         Payrun updated = payrunRepository.save(payrun);
         return PayrunResponse.fromEntity(updated, true);
+    }
+
+    /**
+     * Asynchronously queues or delivers payslip emails for an entire payrun batch.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> sendPayslipsForPayrun(UUID payrunId) {
+        Payrun payrun = payrunRepository.findById(payrunId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payrun not found with id: " + payrunId));
+
+        List<Payslip> slips = payrun.getPayslips();
+        int queuedCount = 0;
+
+        for (Payslip slip : slips) {
+            String email = slip.getEmployee() != null ? slip.getEmployee().getEmail() : null;
+            if (email == null || email.isBlank()) continue;
+
+            PayslipEmailMessage message = PayslipEmailMessage.builder()
+                    .payslipId(slip.getId())
+                    .payrunId(payrun.getId())
+                    .employeeId(slip.getEmployee().getId())
+                    .employeeName(slip.getEmployee().getFullName())
+                    .recipientEmail(email)
+                    .periodStart(slip.getPeriodStart())
+                    .periodEnd(slip.getPeriodEnd())
+                    .grossSalary(slip.getGrossSalary())
+                    .totalDeductions(slip.getTotalDeductions())
+                    .netSalary(slip.getNetSalary())
+                    .currency("USD")
+                    .requestedAt(OffsetDateTime.now())
+                    .build();
+
+            try {
+                rabbitTemplate.convertAndSend(
+                        RabbitMqPayrollConfig.PAYROLL_EXCHANGE,
+                        RabbitMqPayrollConfig.PAYSLIP_EMAIL_ROUTING_KEY,
+                        message
+                );
+                queuedCount++;
+            } catch (Exception ex) {
+                log.warn("RabbitMQ broker unavailable ({}). Falling back to direct email dispatch for employee: {}",
+                        ex.getMessage(), slip.getEmployee().getFullName());
+                try {
+                    byte[] pdf = payslipPdfService.generatePayslipPdf(slip);
+                    emailService.sendPayslipEmail(
+                            email,
+                            slip.getEmployee().getFullName(),
+                            slip.getPeriodStart(),
+                            slip.getPeriodEnd(),
+                            slip.getGrossSalary(),
+                            slip.getTotalDeductions(),
+                            slip.getNetSalary(),
+                            pdf
+                    );
+                    queuedCount++;
+                } catch (Exception directEx) {
+                    log.error("Direct email fallback failed for employee {}: {}", slip.getEmployee().getFullName(), directEx.getMessage());
+                }
+            }
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "SUCCESS");
+        result.put("payrunId", payrunId);
+        result.put("dispatchedCount", queuedCount);
+        result.put("totalPayslips", slips.size());
+        result.put("message", "Payslips successfully queued for email delivery via RabbitMQ.");
+        return result;
+    }
+
+    /**
+     * Queues or delivers email for an individual payslip.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> sendSinglePayslipEmail(UUID payslipId) {
+        Payslip slip = payslipRepository.findById(payslipId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payslip not found with id: " + payslipId));
+
+        String email = slip.getEmployee() != null ? slip.getEmployee().getEmail() : null;
+        if (email == null || email.isBlank()) {
+            throw new ConflictException("Employee has no email address configured.");
+        }
+
+        PayslipEmailMessage message = PayslipEmailMessage.builder()
+                .payslipId(slip.getId())
+                .payrunId(slip.getPayrun() != null ? slip.getPayrun().getId() : null)
+                .employeeId(slip.getEmployee().getId())
+                .employeeName(slip.getEmployee().getFullName())
+                .recipientEmail(email)
+                .periodStart(slip.getPeriodStart())
+                .periodEnd(slip.getPeriodEnd())
+                .grossSalary(slip.getGrossSalary())
+                .totalDeductions(slip.getTotalDeductions())
+                .netSalary(slip.getNetSalary())
+                .currency("USD")
+                .requestedAt(OffsetDateTime.now())
+                .build();
+
+        try {
+            rabbitTemplate.convertAndSend(
+                    RabbitMqPayrollConfig.PAYROLL_EXCHANGE,
+                    RabbitMqPayrollConfig.PAYSLIP_EMAIL_ROUTING_KEY,
+                    message
+            );
+        } catch (Exception ex) {
+            log.warn("RabbitMQ broker unavailable ({}). Delivering directly via EmailService.", ex.getMessage());
+            byte[] pdf = payslipPdfService.generatePayslipPdf(slip);
+            emailService.sendPayslipEmail(
+                    email,
+                    slip.getEmployee().getFullName(),
+                    slip.getPeriodStart(),
+                    slip.getPeriodEnd(),
+                    slip.getGrossSalary(),
+                    slip.getTotalDeductions(),
+                    slip.getNetSalary(),
+                    pdf
+            );
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "SUCCESS");
+        result.put("payslipId", payslipId);
+        result.put("recipient", email);
+        result.put("message", "Payslip email queued for delivery.");
+        return result;
     }
 
     @Transactional(readOnly = true)

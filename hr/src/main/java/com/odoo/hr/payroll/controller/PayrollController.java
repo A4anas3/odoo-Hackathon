@@ -62,6 +62,16 @@ public class PayrollController {
         return ResponseEntity.ok(payrollService.getPayslipById(id));
     }
 
+    @PostMapping("/payruns/{id}/send-payslips")
+    public ResponseEntity<java.util.Map<String, Object>> sendPayslipsForPayrun(@PathVariable UUID id) {
+        return ResponseEntity.ok(payrollService.sendPayslipsForPayrun(id));
+    }
+
+    @PostMapping("/payslips/{id}/send-email")
+    public ResponseEntity<java.util.Map<String, Object>> sendSinglePayslipEmail(@PathVariable UUID id) {
+        return ResponseEntity.ok(payrollService.sendSinglePayslipEmail(id));
+    }
+
     @GetMapping("/payslips/{id}/pdf")
     public ResponseEntity<byte[]> getPayslipPdf(@PathVariable UUID id) {
         byte[] pdfBytes = payrollService.generatePayslipPdf(id);

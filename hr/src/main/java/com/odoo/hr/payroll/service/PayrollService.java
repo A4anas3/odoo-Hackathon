@@ -28,6 +28,7 @@ import com.odoo.hr.security.CurrentEmployeeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.context.expression.MapAccessor;
 import org.springframework.expression.Expression;
 import org.springframework.expression.ExpressionParser;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
@@ -278,10 +279,24 @@ public class PayrollService {
         Map<String, BigDecimal> ruleAmounts = new HashMap<>();
         ruleAmounts.put("contract.wage", contractWage);
         ruleAmounts.put("wage", contractWage);
+        ruleAmounts.put("contract_wage", contractWage);
         ruleAmounts.put("BASE", baseSalary);
+        ruleAmounts.put("BASIC", baseSalary);
+        ruleAmounts.put("hourly_rate", hourlyRate);
+        ruleAmounts.put("daily_rate", dailyRate);
         ruleAmounts.put("worked_hours", totalWorkedHours);
         ruleAmounts.put("present_days", BigDecimal.valueOf(presentCount));
+        ruleAmounts.put("absent_days", BigDecimal.valueOf(absentCount));
+        ruleAmounts.put("working_days", BigDecimal.valueOf(scheduledWorkingDays));
+        ruleAmounts.put("scheduled_days", BigDecimal.valueOf(scheduledWorkingDays));
         ruleAmounts.put("overtime_hours", totalOvertimeHours);
+        ruleAmounts.put("OVERTIME", BigDecimal.ZERO);
+        ruleAmounts.put("LOP", BigDecimal.ZERO);
+        ruleAmounts.put("PF", BigDecimal.ZERO);
+        ruleAmounts.put("PT", BigDecimal.ZERO);
+        ruleAmounts.put("HRA", BigDecimal.ZERO);
+        ruleAmounts.put("STD", BigDecimal.ZERO);
+        ruleAmounts.put("DED", BigDecimal.ZERO);
 
         int seq = 1;
 
@@ -344,6 +359,11 @@ public class PayrollService {
         // Now evaluate custom rules from Salary Structure if configured
         if (structure != null) {
             List<SalaryRule> rules = salaryRuleRepository.findBySalaryStructureIdOrderBySequenceAsc(structure.getId());
+            for (SalaryRule r : rules) {
+                if (r.getCode() != null) {
+                    ruleAmounts.putIfAbsent(r.getCode(), BigDecimal.ZERO);
+                }
+            }
             for (SalaryRule rule : rules) {
                 if (!Boolean.TRUE.equals(rule.getActive())) continue;
                 if ("BASIC".equalsIgnoreCase(rule.getCode()) || "BASE".equalsIgnoreCase(rule.getCode()) || "HOURLY_BASE".equalsIgnoreCase(rule.getCode())) continue;
@@ -422,11 +442,19 @@ public class PayrollService {
                     && currentGross.compareTo(BigDecimal.ZERO) > 0
                     ? currentGross : baseSalary;
 
-            // If formula references a specific code, use that base
+            // If formula references a specific code or wage base, use that base
             if (rule.getFormula() != null && !rule.getFormula().isBlank()) {
                 String ref = rule.getFormula().trim();
                 if (context.containsKey(ref)) {
                     base = context.get(ref);
+                } else if (ref.contains("BASIC") && context.containsKey("BASIC")) {
+                    base = context.get("BASIC");
+                } else if (ref.contains("contract.wage") && context.containsKey("contract.wage")) {
+                    base = context.get("contract.wage");
+                } else if (ref.contains("contract_wage") && context.containsKey("contract_wage")) {
+                    base = context.get("contract_wage");
+                } else if (ref.contains("GROSS") && context.containsKey("GROSS")) {
+                    base = context.get("GROSS");
                 }
             }
 
@@ -435,28 +463,25 @@ public class PayrollService {
 
         if ("FORMULA".equals(type) && rule.getFormula() != null && !rule.getFormula().isBlank()) {
             try {
-                StandardEvaluationContext evalCtx = new StandardEvaluationContext();
+                Map<String, Object> rootMap = new HashMap<>();
                 for (Map.Entry<String, BigDecimal> entry : context.entrySet()) {
-                    evalCtx.setVariable(entry.getKey().replace(".", "_"), entry.getValue().doubleValue());
+                    rootMap.put(entry.getKey().replace(".", "_"), entry.getValue().doubleValue());
+                    rootMap.put(entry.getKey(), entry.getValue().doubleValue());
                 }
-                evalCtx.setVariable("contract_wage", baseSalary.doubleValue());
-                evalCtx.setVariable("wage", baseSalary.doubleValue());
-                evalCtx.setVariable("GROSS", currentGross.doubleValue());
+                rootMap.put("contract_wage", baseSalary.doubleValue());
+                rootMap.put("wage", baseSalary.doubleValue());
+                rootMap.put("GROSS", currentGross.doubleValue());
 
-                String exprStr = rule.getFormula();
-                exprStr = exprStr.replaceAll("\\bcontract\\.wage\\b", "#contract_wage");
-                List<String> sortedKeys = new ArrayList<>(context.keySet());
-                sortedKeys.remove("contract.wage");
-                sortedKeys.sort((a, b) -> Integer.compare(b.length(), a.length()));
-                for (String key : sortedKeys) {
-                    if (!key.contains(".")) {
-                        exprStr = exprStr.replaceAll("\\b" + java.util.regex.Pattern.quote(key) + "\\b", "#" + key);
-                    }
+                StandardEvaluationContext evalCtx = new StandardEvaluationContext(rootMap);
+                evalCtx.addPropertyAccessor(new MapAccessor());
+
+                for (Map.Entry<String, Object> entry : rootMap.entrySet()) {
+                    evalCtx.setVariable(entry.getKey(), entry.getValue());
                 }
-                exprStr = exprStr.replaceAll("\\bcontract_wage\\b", "#contract_wage")
-                        .replaceAll("\\bwage\\b", "#wage")
-                        .replaceAll("\\bGROSS\\b", "#GROSS")
-                        .replaceAll("\\bDED\\b", "#DED");
+
+                String exprStr = rule.getFormula().trim();
+                exprStr = exprStr.replaceAll("\\bcontract\\.wage\\b", "contract_wage");
+                exprStr = exprStr.replace("##", "#");
 
                 Expression expr = spelParser.parseExpression(exprStr);
                 Double result = expr.getValue(evalCtx, Double.class);
@@ -464,9 +489,15 @@ public class PayrollService {
                     return BigDecimal.valueOf(result).setScale(2, RoundingMode.HALF_UP);
                 }
             } catch (Exception e) {
-                log.warn("SpEL evaluation failed for formula '{}': {}. Falling back to percentage/fixed.",
+                log.warn("SpEL evaluation failed for formula '{}': {}. Falling back to zero.",
                         rule.getFormula(), e.getMessage());
             }
+            return rule.getValue() != null ? rule.getValue() : BigDecimal.ZERO;
+        }
+
+        String cat = rule.getCategory() != null ? rule.getCategory().toUpperCase() : "";
+        if ("DED".equals(cat) || "DEDUCTION".equals(cat) || "TAX".equals(cat)) {
+            return rule.getValue() != null ? rule.getValue() : BigDecimal.ZERO;
         }
 
         return rule.getValue() != null ? rule.getValue() : baseSalary;
@@ -756,13 +787,34 @@ public class PayrollService {
         Payrun payrun = payrunRepository.findById(payrunId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payrun not found with id: " + payrunId));
 
-        if (!"DRAFT".equals(payrun.getStatus())) {
-            throw new ConflictException("Payrun is already " + payrun.getStatus());
+        if ("PAID".equalsIgnoreCase(payrun.getStatus())) {
+            throw new ConflictException("Cannot validate a payrun that has already been marked as PAID.");
         }
 
+        SalaryStructure defaultStructure = payrun.getSalaryStructure();
+        for (Payslip slip : payrun.getPayslips()) {
+            if ("PAID".equals(slip.getStatus())) continue;
+
+            Contract contract = slip.getContract();
+            if (contract == null) {
+                List<Contract> contracts = contractRepository.findApplicableContractsForPeriod(
+                        slip.getEmployee().getId(), payrun.getPeriodStart(), payrun.getPeriodEnd());
+                contract = !contracts.isEmpty() ? contracts.get(0)
+                        : contractRepository.findFirstByEmployeeIdAndStatus(slip.getEmployee().getId(), "RUNNING").orElse(null);
+            }
+
+            SalaryStructure struct = (contract != null && contract.getSalaryStructure() != null)
+                    ? contract.getSalaryStructure() : defaultStructure;
+
+            if (contract != null) {
+                populatePayslipLines(slip, slip.getEmployee(), contract, struct, payrun.getPeriodStart(), payrun.getPeriodEnd());
+            }
+            slip.setStatus("CONFIRMED");
+        }
+
+        payrun.setCalculatedAt(OffsetDateTime.now());
         payrun.setStatus("VALIDATED");
         payrun.setValidatedAt(OffsetDateTime.now());
-        payrun.getPayslips().forEach(p -> p.setStatus("CONFIRMED"));
 
         Payrun updated = payrunRepository.save(payrun);
         payslipRedisCacheService.revokeAll();
@@ -974,7 +1026,35 @@ public class PayrollService {
         Map<String, BigDecimal> ruleAmounts = new HashMap<>();
         ruleAmounts.put("contract.wage", baseWage);
         ruleAmounts.put("wage", baseWage);
+        ruleAmounts.put("contract_wage", baseWage);
         ruleAmounts.put("BASE", baseWage);
+        BigDecimal defaultBasic = baseWage.multiply(new BigDecimal("0.50")).setScale(2, RoundingMode.HALF_UP);
+        ruleAmounts.put("BASIC", defaultBasic);
+        BigDecimal previewDaily = baseWage.divide(BigDecimal.valueOf(20), 4, RoundingMode.HALF_UP);
+        BigDecimal previewHourly = previewDaily.divide(BigDecimal.valueOf(8), 4, RoundingMode.HALF_UP);
+        ruleAmounts.put("hourly_rate", previewHourly);
+        ruleAmounts.put("daily_rate", previewDaily);
+        ruleAmounts.put("worked_hours", new BigDecimal("160.0"));
+        ruleAmounts.put("present_days", new BigDecimal("20.0"));
+        ruleAmounts.put("absent_days", BigDecimal.ZERO);
+        ruleAmounts.put("working_days", new BigDecimal("20.0"));
+        ruleAmounts.put("scheduled_days", new BigDecimal("20.0"));
+        ruleAmounts.put("overtime_hours", BigDecimal.ZERO);
+        ruleAmounts.put("OVERTIME", BigDecimal.ZERO);
+        ruleAmounts.put("LOP", BigDecimal.ZERO);
+        ruleAmounts.put("PF", BigDecimal.ZERO);
+        ruleAmounts.put("PT", BigDecimal.ZERO);
+        ruleAmounts.put("HRA", BigDecimal.ZERO);
+        ruleAmounts.put("STD", BigDecimal.ZERO);
+        ruleAmounts.put("DED", BigDecimal.ZERO);
+
+        if (!rules.isEmpty()) {
+            for (SalaryRule r : rules) {
+                if (r.getCode() != null) {
+                    ruleAmounts.putIfAbsent(r.getCode(), BigDecimal.ZERO);
+                }
+            }
+        }
 
         int activeRuleCount = 0;
 
@@ -1004,6 +1084,7 @@ public class PayrollService {
                 String cat = rule.getCategory() != null ? rule.getCategory().toUpperCase() : "ALW";
                 if ("BASIC".equalsIgnoreCase(cat) || "BASIC".equalsIgnoreCase(rule.getCode())) {
                     basicSalary = amount;
+                    ruleAmounts.put("BASIC", basicSalary);
                     gross = gross.add(amount);
                 } else if ("DED".equalsIgnoreCase(cat) || "DEDUCTION".equalsIgnoreCase(cat) || "TAX".equalsIgnoreCase(cat)) {
                     deductions = deductions.add(amount);
@@ -1034,25 +1115,34 @@ public class PayrollService {
             }
         }
 
-        // If GROSS_LOCK is selected or GROSS is 0, ensure gross aligns with baseWage
+        // If GROSS_LOCK is selected, ensure gross aligns with baseWage by balancing remaining allowance
         if ("GROSS_LOCK".equalsIgnoreCase(mode) && baseWage.compareTo(BigDecimal.ZERO) > 0) {
             gross = baseWage;
-            // Adjust allowance line so basic + allowance matches gross
-            BigDecimal targetAllowance = baseWage.subtract(basicSalary);
-            if (targetAllowance.compareTo(BigDecimal.ZERO) >= 0) {
-                for (SalaryPreviewResponse.SalaryPreviewLineDto line : lineDtos) {
+            BigDecimal currentAlwSum = BigDecimal.ZERO;
+            for (SalaryPreviewResponse.SalaryPreviewLineDto line : lineDtos) {
+                if ("ALW".equalsIgnoreCase(line.getCategory()) || "ALLOWANCE".equalsIgnoreCase(line.getCategory())) {
+                    currentAlwSum = currentAlwSum.add(line.getMonthly() != null ? line.getMonthly() : BigDecimal.ZERO);
+                }
+            }
+            BigDecimal remainder = baseWage.subtract(basicSalary).subtract(currentAlwSum);
+            if (remainder.compareTo(BigDecimal.ZERO) > 0) {
+                // Add remainder to the last allowance (e.g. Standard Allowance or Special Allowance) to align exactly with Gross
+                for (int i = lineDtos.size() - 1; i >= 0; i--) {
+                    SalaryPreviewResponse.SalaryPreviewLineDto line = lineDtos.get(i);
                     if ("ALW".equalsIgnoreCase(line.getCategory()) || "ALLOWANCE".equalsIgnoreCase(line.getCategory())) {
-                        line.setMonthly(targetAllowance);
-                        line.setAnnual(targetAllowance.multiply(BigDecimal.valueOf(12)));
+                        BigDecimal currentVal = line.getMonthly() != null ? line.getMonthly() : BigDecimal.ZERO;
+                        BigDecimal newVal = currentVal.add(remainder);
+                        line.setMonthly(newVal);
+                        line.setAnnual(newVal.multiply(BigDecimal.valueOf(12)));
                         break;
                     }
                 }
             }
-            // Recalculate percentage-based deductions based on the locked gross
+            // Recalculate deductions
             deductions = BigDecimal.ZERO;
             for (SalaryPreviewResponse.SalaryPreviewLineDto line : lineDtos) {
                 if ("DED".equalsIgnoreCase(line.getCategory()) || "DEDUCTION".equalsIgnoreCase(line.getCategory()) || "TAX".equalsIgnoreCase(line.getCategory())) {
-                    if (line.getPercentage() != null && line.getPercentage().compareTo(BigDecimal.ZERO) > 0) {
+                    if ("TAX".equalsIgnoreCase(line.getCategory()) && line.getPercentage() != null && line.getPercentage().compareTo(BigDecimal.ZERO) > 0) {
                         BigDecimal taxAmt = gross.multiply(line.getPercentage().divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP)).setScale(2, RoundingMode.HALF_UP);
                         line.setMonthly(taxAmt);
                         line.setAnnual(taxAmt.multiply(BigDecimal.valueOf(12)));

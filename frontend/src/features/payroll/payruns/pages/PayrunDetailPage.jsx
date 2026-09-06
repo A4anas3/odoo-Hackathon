@@ -154,51 +154,53 @@ export function PayrunDetailPage() {
             Back
           </Button>
 
-          {status !== 'PAID' && (
-            <Button
-              variant="primary"
-              size="sm"
-              icon={Calculator}
-              isLoading={computeMutation.isPending}
-              onClick={() => computeMutation.mutate()}
-            >
-              COMPUTE
-            </Button>
-          )}
-
           {status === 'DRAFT' && (
             <Button
-              variant="secondary"
+              variant="primary"
               size="sm"
               icon={ShieldCheck}
               isLoading={validateMutation.isPending}
               onClick={() => validateMutation.mutate()}
             >
-              VALIDATE
+              COMPUTE & VALIDATE
             </Button>
           )}
 
-          {status !== 'PAID' && (
+          {(status === 'VALIDATED' || status === 'CONFIRMED') && (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={Calculator}
+                isLoading={validateMutation.isPending}
+                onClick={() => validateMutation.mutate()}
+                title="Recalculate attendance punches and salary rules"
+              >
+                RE-COMPUTE
+              </Button>
+              <Button
+                variant="success"
+                size="sm"
+                icon={CreditCard}
+                isLoading={payMutation.isPending}
+                onClick={() => payMutation.mutate()}
+              >
+                MARK PAID
+              </Button>
+            </>
+          )}
+
+          {status === 'PAID' && (
             <Button
-              variant="success"
+              variant="primary"
               size="sm"
-              icon={CreditCard}
-              isLoading={payMutation.isPending}
-              onClick={() => payMutation.mutate()}
+              icon={Send}
+              isLoading={isSendingBulk}
+              onClick={handleSendBulkPayslips}
             >
-              MARK PAID
+              SEND PAYSLIPS
             </Button>
           )}
-
-          <Button
-            variant="primary"
-            size="sm"
-            icon={Send}
-            isLoading={isSendingBulk}
-            onClick={handleSendBulkPayslips}
-          >
-            SEND PAYSLIPS
-          </Button>
         </div>
       }
     >

@@ -384,8 +384,8 @@ export function EmployeeFormPage() {
         savedEmployeeId = created.id;
       }
 
-      // Handle Contract & Wages assignment if enabled
-      if (contractData.enabled && Number(contractData.salary) > 0) {
+      // Handle Contract & Wages assignment if salary entered
+      if (Number(contractData.salary) > 0) {
         const contractPayload = {
           employeeId: savedEmployeeId,
           contractType: contractData.contractType || 'PERMANENT',
@@ -586,20 +586,9 @@ export function EmployeeFormPage() {
                 </span>
               </div>
             </div>
-
-            <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
-              <input
-                type="checkbox"
-                checked={contractData.enabled}
-                onChange={(e) => handleContractChange('enabled', e.target.checked)}
-                className="rounded border-slate-300 text-[#714B67] focus:ring-[#714B67]"
-              />
-              <span>Enroll / Manage Contract</span>
-            </label>
           </div>
 
-          {contractData.enabled && (
-            <CardContent className="p-5 space-y-4">
+          <CardContent className="p-5 space-y-4">
               {/* Existing Contract Selector if editing an employee who already has contracts */}
               {isEdit && employeeContracts.length > 0 && (
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
@@ -950,32 +939,9 @@ export function EmployeeFormPage() {
                         <div className="p-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-slate-700">Gross Alignment:</span>
-                            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-2xs">
-                              <button
-                                type="button"
-                                onClick={() => setCalculationMode('GROSS_LOCK')}
-                                className={`px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
-                                  calculationMode === 'GROSS_LOCK'
-                                    ? 'bg-[#714B67] text-white shadow-xs'
-                                    : 'text-slate-600 hover:text-slate-900'
-                                }`}
-                                title="Caps Total Gross exactly at entered Base Wage"
-                              >
-                                Match Base Wage (₹{Number(contractData.salary).toLocaleString('en-IN')})
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setCalculationMode('RAW_FORMULA')}
-                                className={`px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
-                                  calculationMode === 'RAW_FORMULA'
-                                    ? 'bg-[#714B67] text-white shadow-xs'
-                                    : 'text-slate-600 hover:text-slate-900'
-                                }`}
-                                title="Strictly evaluates database formulas as configured"
-                              >
-                                Raw Structure Formulas
-                              </button>
-                            </div>
+                            <span className="px-2.5 py-1 rounded text-xs font-semibold bg-[#714B67]/10 text-[#714B67] border border-[#714B67]/20 shadow-2xs">
+                              Match Base Wage (₹{Number(contractData.salary || 0).toLocaleString('en-IN')})
+                            </span>
                           </div>
 
                           <div className="flex items-center gap-2">
@@ -1133,19 +1099,6 @@ export function EmployeeFormPage() {
                                 );
                               })}
                             </tbody>
-                            <tfoot className="bg-slate-50 font-bold text-slate-800 border-t-2 border-slate-200 text-xs">
-                              <tr>
-                                <td className="p-2.5" colSpan={3}>
-                                  Total Net Pay (In-Hand Take-Home)
-                                </td>
-                                <td className="p-2.5 text-right font-extrabold text-emerald-700 font-mono text-sm">
-                                  {formatCurrency(salaryComputation.net, 'INR')}
-                                </td>
-                                <td className="p-2.5 text-right font-extrabold text-emerald-800 font-mono text-sm">
-                                  {formatCurrency(salaryComputation.annualNet, 'INR')}
-                                </td>
-                              </tr>
-                            </tfoot>
                           </table>
                         ) : (
                           <div className="p-8 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200 m-3">
@@ -1245,7 +1198,6 @@ export function EmployeeFormPage() {
                 )}
               </div>
             </CardContent>
-          )}
         </Card>
 
         {/* 4. Banking Information */}

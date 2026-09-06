@@ -182,8 +182,8 @@ public class DataInitializer implements CommandLineRunner {
         SalaryStructure structContractor = getOrCreateSalaryStructure("Contractor", "Hourly and milestone contractor billing structure");
 
         // Rules for Regular Salary matching wireframes
-        ensureSalaryRule(structRegular, "Basic Salary", "BASIC", 1, "BASIC", "PERCENTAGE", new BigDecimal("50.00"), null, "contract.wage * 0.50");
-        ensureSalaryRule(structRegular, "House Rent Allowance", "HRA", 10, "ALW", "PERCENTAGE", new BigDecimal("20.00"), null, "contract.wage * 0.20");
+        ensureSalaryRule(structRegular, "Basic Salary", "BASIC", 1, "BASIC", "PERCENTAGE", new BigDecimal("100.00"), null, "contract.wage (100%)");
+        ensureSalaryRule(structRegular, "House Rent Allowance", "HRA", 10, "ALW", "PERCENTAGE", new BigDecimal("20.00"), null, "BASIC * 0.20");
         ensureSalaryRule(structRegular, "Standard Allowance", "STD", 15, "ALW", "FIXED", null, new BigDecimal("5000.00"), "5000");
         ensureSalaryRule(structRegular, "Overtime Allowance", "OVERTIME", 18, "ALW", "FORMULA", null, null, "hourly_rate * 1.5 * overtime_hours");
         ensureSalaryRule(structRegular, "Gross Salary", "GROSS", 20, "GROSS", "FORMULA", null, null, "BASIC + HRA + STD + OVERTIME");

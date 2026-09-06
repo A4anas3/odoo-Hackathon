@@ -143,7 +143,7 @@ public class PayrollService {
         Payrun saved = payrunRepository.save(payrun);
         for (Payslip savedSlip : saved.getPayslips()) {
             List<Attendance> atts = attendanceRepository.findUnpaidOrCurrentPayslipAttendances(
-                    savedSlip.getEmployee().getId(), saved.getPeriodStart(), saved.getPeriodEnd(), savedSlip.getId());
+                    savedSlip.getEmployee().getId(), savedSlip.getId(), saved.getPeriodStart(), saved.getPeriodEnd());
             if (atts != null && !atts.isEmpty()) {
                 atts.forEach(a -> a.setPayslip(savedSlip));
                 attendanceRepository.saveAll(atts);
@@ -1036,8 +1036,7 @@ public class PayrollService {
         ruleAmounts.put("wage", baseWage);
         ruleAmounts.put("contract_wage", baseWage);
         ruleAmounts.put("BASE", baseWage);
-        BigDecimal defaultBasic = baseWage.multiply(new BigDecimal("0.50")).setScale(2, RoundingMode.HALF_UP);
-        ruleAmounts.put("BASIC", defaultBasic);
+        ruleAmounts.put("BASIC", baseWage);
         BigDecimal previewDaily = baseWage.divide(BigDecimal.valueOf(20), 4, RoundingMode.HALF_UP);
         BigDecimal previewHourly = previewDaily.divide(BigDecimal.valueOf(8), 4, RoundingMode.HALF_UP);
         ruleAmounts.put("hourly_rate", previewHourly);
@@ -1077,8 +1076,13 @@ public class PayrollService {
                 if (overrides.containsKey(rule.getCode()) && overrides.get(rule.getCode()) != null) {
                     amount = overrides.get(rule.getCode());
                     isOverridden = true;
-                } else if ("GROSS_LOCK".equalsIgnoreCase(mode) && "GROSS".equalsIgnoreCase(rule.getCategory())) {
+                } else if ("BASIC".equalsIgnoreCase(rule.getCode()) || "BASE".equalsIgnoreCase(rule.getCode()) || "BASIC".equalsIgnoreCase(rule.getCategory())) {
+                    // Base wage is the basic salary; allowances add to it (+) to increase gross
                     amount = baseWage;
+                } else if ("GROSS".equalsIgnoreCase(rule.getCategory()) || "GROSS".equalsIgnoreCase(rule.getCode())) {
+                    amount = gross;
+                } else if ("NET".equalsIgnoreCase(rule.getCategory()) || "NET".equalsIgnoreCase(rule.getCode())) {
+                    amount = gross.subtract(deductions).max(BigDecimal.ZERO);
                 } else {
                     amount = evaluateSalaryRule(rule, baseWage, gross, ruleAmounts);
                 }
@@ -1090,17 +1094,18 @@ public class PayrollService {
                 ruleAmounts.put(rule.getCode(), amount);
 
                 String cat = rule.getCategory() != null ? rule.getCategory().toUpperCase() : "ALW";
-                if ("BASIC".equalsIgnoreCase(cat) || "BASIC".equalsIgnoreCase(rule.getCode())) {
+                if ("BASIC".equalsIgnoreCase(cat) || "BASIC".equalsIgnoreCase(rule.getCode()) || "BASE".equalsIgnoreCase(rule.getCode())) {
                     basicSalary = amount;
                     ruleAmounts.put("BASIC", basicSalary);
                     gross = gross.add(amount);
                 } else if ("DED".equalsIgnoreCase(cat) || "DEDUCTION".equalsIgnoreCase(cat) || "TAX".equalsIgnoreCase(cat)) {
                     deductions = deductions.add(amount);
                 } else if ("GROSS".equalsIgnoreCase(cat)) {
-                    gross = amount;
+                    amount = gross;
                 } else if ("NET".equalsIgnoreCase(cat)) {
-                    // net computed at the end
+                    amount = gross.subtract(deductions).max(BigDecimal.ZERO);
                 } else {
+                    // Allowances (HRA, STD, Overtime) add to Gross (+)
                     gross = gross.add(amount);
                 }
 
@@ -1123,44 +1128,7 @@ public class PayrollService {
             }
         }
 
-        // If GROSS_LOCK is selected, ensure gross aligns with baseWage by balancing remaining allowance
-        if ("GROSS_LOCK".equalsIgnoreCase(mode) && baseWage.compareTo(BigDecimal.ZERO) > 0) {
-            gross = baseWage;
-            BigDecimal currentAlwSum = BigDecimal.ZERO;
-            for (SalaryPreviewResponse.SalaryPreviewLineDto line : lineDtos) {
-                if ("ALW".equalsIgnoreCase(line.getCategory()) || "ALLOWANCE".equalsIgnoreCase(line.getCategory())) {
-                    currentAlwSum = currentAlwSum.add(line.getMonthly() != null ? line.getMonthly() : BigDecimal.ZERO);
-                }
-            }
-            BigDecimal remainder = baseWage.subtract(basicSalary).subtract(currentAlwSum);
-            if (remainder.compareTo(BigDecimal.ZERO) > 0) {
-                // Add remainder to the last allowance (e.g. Standard Allowance or Special Allowance) to align exactly with Gross
-                for (int i = lineDtos.size() - 1; i >= 0; i--) {
-                    SalaryPreviewResponse.SalaryPreviewLineDto line = lineDtos.get(i);
-                    if ("ALW".equalsIgnoreCase(line.getCategory()) || "ALLOWANCE".equalsIgnoreCase(line.getCategory())) {
-                        BigDecimal currentVal = line.getMonthly() != null ? line.getMonthly() : BigDecimal.ZERO;
-                        BigDecimal newVal = currentVal.add(remainder);
-                        line.setMonthly(newVal);
-                        line.setAnnual(newVal.multiply(BigDecimal.valueOf(12)));
-                        break;
-                    }
-                }
-            }
-            // Recalculate deductions
-            deductions = BigDecimal.ZERO;
-            for (SalaryPreviewResponse.SalaryPreviewLineDto line : lineDtos) {
-                if ("DED".equalsIgnoreCase(line.getCategory()) || "DEDUCTION".equalsIgnoreCase(line.getCategory()) || "TAX".equalsIgnoreCase(line.getCategory())) {
-                    if ("TAX".equalsIgnoreCase(line.getCategory()) && line.getPercentage() != null && line.getPercentage().compareTo(BigDecimal.ZERO) > 0) {
-                        BigDecimal taxAmt = gross.multiply(line.getPercentage().divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP)).setScale(2, RoundingMode.HALF_UP);
-                        line.setMonthly(taxAmt);
-                        line.setAnnual(taxAmt.multiply(BigDecimal.valueOf(12)));
-                        deductions = deductions.add(taxAmt);
-                    } else {
-                        deductions = deductions.add(line.getMonthly() != null ? line.getMonthly() : BigDecimal.ZERO);
-                    }
-                }
-            }
-        } else if (gross.compareTo(BigDecimal.ZERO) == 0 && baseWage.compareTo(BigDecimal.ZERO) > 0) {
+        if (gross.compareTo(BigDecimal.ZERO) == 0 && baseWage.compareTo(BigDecimal.ZERO) > 0) {
             gross = baseWage;
         }
 

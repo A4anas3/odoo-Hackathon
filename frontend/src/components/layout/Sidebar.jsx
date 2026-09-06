@@ -100,30 +100,45 @@ export function Sidebar({ isCollapsed, onToggleCollapse, isMobileOpen, onCloseMo
   const content = (
     <div className="flex flex-col h-full bg-white border-r border-slate-200 select-none">
       {/* Brand Header */}
-      <div className="h-14 flex items-center justify-between px-4 border-b border-slate-200/80 shrink-0">
-        <NavLink to={ROUTES.DASHBOARD} className="flex items-center gap-2.5 overflow-hidden">
-          <div className="w-8 h-8 rounded-lg bg-[#714B67] flex items-center justify-center text-white font-bold text-base shadow-xs shrink-0">
+      <div
+        className={cn(
+          'h-14 flex items-center border-b border-slate-200/80 shrink-0 relative transition-all',
+          isCollapsed ? 'justify-center px-2' : 'justify-between px-4'
+        )}
+      >
+        <NavLink
+          to={ROUTES.DASHBOARD}
+          className="flex items-center gap-2.5 shrink-0"
+          title="Odoo HRMS"
+        >
+          <div className="w-8 h-8 rounded-lg bg-[#714B67] flex items-center justify-center text-white font-bold text-base shadow-xs shrink-0 ring-2 ring-purple-100">
             O
           </div>
           {!isCollapsed && (
-            <div className="flex flex-col">
-              <span className="font-bold text-slate-800 text-sm tracking-tight leading-none">
+            <div className="flex flex-col min-w-0">
+              <span className="font-bold text-slate-800 text-sm tracking-tight leading-none truncate">
                 Odoo HRMS
               </span>
-              <span className="text-[10px] text-slate-400 font-medium leading-none mt-1">
+              <span className="text-[10px] text-slate-400 font-medium leading-none mt-1 truncate">
                 Enterprise Suite
               </span>
             </div>
           )}
         </NavLink>
 
-        {/* Desktop collapse button */}
+        {/* Desktop collapse / expand button */}
         <button
+          type="button"
           onClick={onToggleCollapse}
-          className="hidden md:flex items-center justify-center p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+          className={cn(
+            'hidden md:flex items-center justify-center transition-all cursor-pointer',
+            isCollapsed
+              ? 'absolute -right-3 top-4 w-6 h-6 rounded-full bg-white border border-slate-200 shadow-md hover:border-[#714B67] hover:text-[#714B67] text-slate-500 z-40'
+              : 'p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+          )}
           title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
         >
-          {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-4 h-4" />}
         </button>
       </div>
 
@@ -144,7 +159,8 @@ export function Sidebar({ isCollapsed, onToggleCollapse, isMobileOpen, onCloseMo
                       to={item.path}
                       onClick={onCloseMobile}
                       className={cn(
-                        'flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium transition-all group relative',
+                        'flex items-center gap-2.5 rounded-md text-xs font-medium transition-all group relative',
+                        isCollapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2',
                         isActive
                           ? 'bg-[#714B67] text-white shadow-2xs font-semibold'
                           : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -198,7 +214,8 @@ export function Sidebar({ isCollapsed, onToggleCollapse, isMobileOpen, onCloseMo
                         to={item.path}
                         onClick={onCloseMobile}
                         className={cn(
-                          'flex items-center gap-2.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all group relative',
+                          'flex items-center gap-2.5 rounded-md text-xs font-medium transition-all group relative',
+                          isCollapsed ? 'justify-center px-0 py-2' : 'px-3 py-1.5',
                           isActive
                             ? 'bg-[#714B67]/10 text-[#714B67] font-semibold'
                             : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -223,7 +240,17 @@ export function Sidebar({ isCollapsed, onToggleCollapse, isMobileOpen, onCloseMo
       </div>
 
       {/* User Quick Info */}
-      {!isCollapsed && (
+      {isCollapsed ? (
+        <div className="p-3 border-t border-slate-200/80 flex justify-center">
+          <NavLink
+            to={ROUTES.PROFILE}
+            className="w-8 h-8 rounded-full bg-[#714B67] text-white flex items-center justify-center text-xs font-bold shrink-0 hover:ring-2 hover:ring-[#714B67]/30 transition-all shadow-xs"
+            title="My Profile"
+          >
+            ME
+          </NavLink>
+        </div>
+      ) : (
         <div className="p-3 border-t border-slate-200/80 bg-slate-50/50">
           <NavLink
             to={ROUTES.PROFILE}

@@ -28,17 +28,20 @@ public class JwtTokenProvider {
 
     private final SecretKey key;
     private final long expirationMs;
+    private final long refreshExpirationMs;
 
     public JwtTokenProvider(
         @Value("${app.jwt.secret:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}") String secret,
-        @Value("${app.jwt.expiration-ms:86400000}") long expirationMs
+        @Value("${app.jwt.expiration-ms:86400000}") long expirationMs,
+        @Value("${app.jwt.refresh-expiration-ms:604800000}") long refreshExpirationMs
     ) {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expirationMs = expirationMs;
+        this.refreshExpirationMs = refreshExpirationMs;
     }
 
     /**
-     * Generates a completely stateless JWT containing user identities and roles.
+     * Generates a completely stateless JWT access token containing user identities and roles.
      * No token is stored in the database.
      */
     public String generateToken(User user) {
@@ -55,6 +58,7 @@ public class JwtTokenProvider {
             .claim("email", user.getEmail())
             .claim("roles", authorities)
             .claim("status", user.getStatus())
+            .claim("tokenType", "ACCESS")
             .issuedAt(now)
             .expiration(expiryDate)
             .signWith(key);
@@ -69,9 +73,32 @@ public class JwtTokenProvider {
         return builder.compact();
     }
 
+    /**
+     * Generates a stateless Refresh Token without storing anything in database tables.
+     * Valid for 7 days by default.
+     */
+    public String generateRefreshToken(User user) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + refreshExpirationMs);
+
+        return Jwts.builder()
+            .subject(user.getEmail())
+            .claim("userId", user.getId().toString())
+            .claim("tokenType", "REFRESH")
+            .issuedAt(now)
+            .expiration(expiryDate)
+            .signWith(key)
+            .compact();
+    }
+
     public boolean validateToken(String token) {
         try {
-            Jwts.parser().verifyWith(key).build().parseSignedClaims(token);
+            Claims claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
+            String tokenType = claims.get("tokenType", String.class);
+            if ("REFRESH".equalsIgnoreCase(tokenType)) {
+                log.warn("Refresh token used as access token for subject: {}", claims.getSubject());
+                return false;
+            }
             return true;
         } catch (SecurityException | MalformedJwtException e) {
             log.warn("Invalid JWT signature: {}", e.getMessage());
@@ -83,6 +110,31 @@ public class JwtTokenProvider {
             log.warn("JWT claims string is empty: {}", e.getMessage());
         }
         return false;
+    }
+
+    public boolean validateRefreshToken(String token) {
+        try {
+            Claims claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
+            String tokenType = claims.get("tokenType", String.class);
+            return "REFRESH".equalsIgnoreCase(tokenType);
+        } catch (SecurityException | MalformedJwtException e) {
+            log.warn("Invalid refresh token signature: {}", e.getMessage());
+        } catch (ExpiredJwtException e) {
+            log.warn("Expired refresh token: {}", e.getMessage());
+        } catch (UnsupportedJwtException e) {
+            log.warn("Unsupported refresh token: {}", e.getMessage());
+        } catch (IllegalArgumentException e) {
+            log.warn("Refresh token claims string is empty: {}", e.getMessage());
+        }
+        return false;
+    }
+
+    public long getExpirationMs() {
+        return expirationMs;
+    }
+
+    public long getRefreshExpirationMs() {
+        return refreshExpirationMs;
     }
 
     public Claims getClaims(String token) {

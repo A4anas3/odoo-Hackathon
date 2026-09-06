@@ -1,5 +1,6 @@
 package com.odoo.hr.user.dto;
 
+import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -9,16 +10,8 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class AuthResponse {
+public class RefreshTokenRequest {
 
-    private String accessToken;
-
+    @NotBlank(message = "Refresh token must not be blank")
     private String refreshToken;
-
-    @Builder.Default
-    private String tokenType = "Bearer";
-
-    private Long expiresIn;
-
-    private UserDto user;
 }

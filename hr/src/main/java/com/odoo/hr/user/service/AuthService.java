@@ -5,6 +5,7 @@ import com.odoo.hr.common.exception.ResourceNotFoundException;
 import com.odoo.hr.security.JwtTokenProvider;
 import com.odoo.hr.user.dto.AuthResponse;
 import com.odoo.hr.user.dto.LoginRequest;
+import com.odoo.hr.user.dto.RefreshTokenRequest;
 import com.odoo.hr.user.dto.UserDto;
 import com.odoo.hr.user.model.User;
 import com.odoo.hr.user.repository.UserRepository;
@@ -39,12 +40,47 @@ public class AuthService {
             throw new ConflictException("User account is inactive or locked. Please contact your administrator.");
         }
 
-        String token = jwtTokenProvider.generateToken(user);
+        String accessToken = jwtTokenProvider.generateToken(user);
+        String refreshToken = jwtTokenProvider.generateRefreshToken(user);
         log.info("User {} successfully authenticated with roles {}", user.getEmail(), user.getRoles());
 
         return AuthResponse.builder()
-            .accessToken(token)
+            .accessToken(accessToken)
+            .refreshToken(refreshToken)
             .tokenType("Bearer")
+            .expiresIn(jwtTokenProvider.getExpirationMs() / 1000)
+            .user(UserDto.fromEntity(user))
+            .build();
+    }
+
+    @Transactional(readOnly = true)
+    public AuthResponse refreshToken(RefreshTokenRequest request) {
+        String token = request.getRefreshToken();
+        if (token == null || token.isBlank()) {
+            throw new BadCredentialsException("Refresh token is required");
+        }
+
+        if (!jwtTokenProvider.validateRefreshToken(token)) {
+            throw new BadCredentialsException("Invalid or expired refresh token");
+        }
+
+        String email = jwtTokenProvider.getEmailFromToken(token);
+        User user = userRepository.findByEmailIgnoreCase(email)
+            .orElseThrow(() -> new BadCredentialsException("User profile not found for refresh token"));
+
+        if (!user.isActive()) {
+            throw new ConflictException("User account is inactive or locked. Please contact your administrator.");
+        }
+
+        String newAccessToken = jwtTokenProvider.generateToken(user);
+        String newRefreshToken = jwtTokenProvider.generateRefreshToken(user);
+        log.info("Refreshed access token for user: {}", user.getEmail());
+
+        return AuthResponse.builder()
+            .accessToken(newAccessToken)
+            .refreshToken(newRefreshToken)
+            .tokenType("Bearer")
+            .expiresIn(jwtTokenProvider.getExpirationMs() / 1000)
             .user(UserDto.fromEntity(user))
             .build();
     }

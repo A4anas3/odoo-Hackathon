@@ -2,6 +2,7 @@ package com.odoo.hr.user.controller;
 
 import com.odoo.hr.user.dto.AuthResponse;
 import com.odoo.hr.user.dto.LoginRequest;
+import com.odoo.hr.user.dto.RefreshTokenRequest;
 import com.odoo.hr.user.dto.UserDto;
 import com.odoo.hr.user.service.AuthService;
 import jakarta.validation.Valid;
@@ -21,6 +22,12 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         AuthResponse response = authService.login(request);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping({"/refresh", "/refresh-token"})
+    public ResponseEntity<AuthResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
+        AuthResponse response = authService.refreshToken(request);
         return ResponseEntity.ok(response);
     }
 

@@ -237,7 +237,7 @@ export function EmployeeFormPage() {
 
   // Custom rule overrides state allowing the admin to dynamically tune component amounts
   const [ruleOverrides, setRuleOverrides] = useState({});
-  const [calculationMode, setCalculationMode] = useState('GROSS_LOCK'); // 'GROSS_LOCK' | 'RAW_FORMULA'
+  const [calculationMode, setCalculationMode] = useState('BASE_PLUS_ALLOWANCES');
   const [backendPreview, setBackendPreview] = useState(null);
   const [isCalculatingBackend, setIsCalculatingBackend] = useState(false);
   const [lastCalculatedAt, setLastCalculatedAt] = useState(null);
@@ -938,9 +938,9 @@ export function EmployeeFormPage() {
                         {/* Computation Mode & Custom Edits Toolbar */}
                         <div className="p-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
                           <div className="flex items-center gap-2">
-                            <span className="font-semibold text-slate-700">Gross Alignment:</span>
-                            <span className="px-2.5 py-1 rounded text-xs font-semibold bg-[#714B67]/10 text-[#714B67] border border-[#714B67]/20 shadow-2xs">
-                              Match Base Wage (₹{Number(contractData.salary || 0).toLocaleString('en-IN')})
+                            <span className="font-semibold text-slate-700">Calculation Basis:</span>
+                            <span className="px-2.5 py-1 rounded text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
+                              Base Wage + Allowances (+)
                             </span>
                           </div>
 
@@ -1144,9 +1144,9 @@ export function EmployeeFormPage() {
                         )}
 
                         <div className="p-2 bg-slate-50/80 border-t border-slate-200 text-[11px] text-slate-500 flex items-center gap-1.5 px-3">
-                          <Info className="w-3.5 h-3.5 text-[#714B67] shrink-0" />
+                          <Info className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                           <span>
-                            Prices and formulas are fully dynamic. You can click and edit any component amount directly in the table above to customize prices, or toggle "Match Base Wage" to ensure allowances fit within the agreed salary.
+                            Prices and formulas are fully dynamic. Base Wage is assigned as Basic Salary, and allowances (HRA, STD, Overtime) are added (+) to calculate Monthly Gross, while statutory deductions (PF/PT) are deducted for Net Take-Home.
                           </span>
                         </div>
                       </div>

@@ -141,6 +141,14 @@ public class PayrollService {
         }
 
         Payrun saved = payrunRepository.save(payrun);
+        for (Payslip savedSlip : saved.getPayslips()) {
+            List<Attendance> atts = attendanceRepository.findUnpaidOrCurrentPayslipAttendances(
+                    savedSlip.getEmployee().getId(), saved.getPeriodStart(), saved.getPeriodEnd(), savedSlip.getId());
+            if (atts != null && !atts.isEmpty()) {
+                atts.forEach(a -> a.setPayslip(savedSlip));
+                attendanceRepository.saveAll(atts);
+            }
+        }
         payslipRedisCacheService.revokeAll();
         log.info("Generated Payrun (id={}) with {} payslips for period [{} - {}]",
                 saved.getId(), saved.getPayslips().size(), saved.getPeriodStart(), saved.getPeriodEnd());
@@ -416,8 +424,8 @@ public class PayrollService {
         slip.setTotalDeductions(deductions);
         slip.setNetSalary(net);
 
-        // Link attendance punches to this payslip and mark paid if payslip is already marked PAID
-        if (attendances != null && !attendances.isEmpty()) {
+        // Link attendance punches to this payslip and mark paid if payslip is already persisted
+        if (slip.getId() != null && attendances != null && !attendances.isEmpty()) {
             boolean isPaid = "PAID".equalsIgnoreCase(slip.getStatus());
             for (Attendance att : attendances) {
                 att.setPayslip(slip);

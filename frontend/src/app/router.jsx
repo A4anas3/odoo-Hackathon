@@ -23,26 +23,33 @@ import { ScheduleEditorPage } from '../features/schedules/pages/ScheduleEditorPa
 
 // Attendance
 import { AttendancePage } from '../features/attendance/pages/AttendancePage';
+import { AttendanceDetailPage } from '../features/attendance/pages/AttendanceDetailPage';
 
 // Time Off
 import { TimeOffPage } from '../features/timeoff/pages/TimeOffPage';
 import { TimeOffRequestsPage } from '../features/timeoff/pages/TimeOffRequestsPage';
+import { TimeOffRequestDetailPage } from '../features/timeoff/pages/TimeOffRequestDetailPage';
+import { AllocationsListPage } from '../features/timeoff/pages/AllocationsListPage';
+import { AllocationDetailPage } from '../features/timeoff/pages/AllocationDetailPage';
+import { TimeOffTypesListPage } from '../features/timeoff/pages/TimeOffTypesListPage';
+import { TimeOffTypeDetailPage } from '../features/timeoff/pages/TimeOffTypeDetailPage';
 
 // Salary
 import { SalaryStructureListPage } from '../features/salary/structures/pages/SalaryStructureListPage';
+import { SalaryStructureDetailPage } from '../features/salary/structures/pages/SalaryStructureDetailPage';
 import { SalaryRuleBuilderPage } from '../features/salary/rules/pages/SalaryRuleBuilderPage';
+import { SalaryRuleDetailPage } from '../features/salary/rules/pages/SalaryRuleDetailPage';
 
 // Payroll & Payruns
+import { PayrollDashboardPage } from '../features/payroll/dashboard/pages/PayrollDashboardPage';
 import { PayrunListPage } from '../features/payroll/payruns/pages/PayrunListPage';
 import { PayrunWizardPage } from '../features/payroll/payruns/pages/PayrunWizardPage';
 import { PayrunDetailPage } from '../features/payroll/payruns/pages/PayrunDetailPage';
 import { PayslipListPage } from '../features/payroll/payslips/pages/PayslipListPage';
 import { PayslipDetailPage } from '../features/payroll/payslips/pages/PayslipDetailPage';
 
-// Reports, Profile & Admin
-import { ReportsPage } from '../features/reports/pages/ReportsPage';
+// Profile
 import { ProfilePage } from '../features/profile/pages/ProfilePage';
-import { AdminSettingsPage } from '../features/admin/pages/AdminSettingsPage';
 
 export const router = createBrowserRouter([
   {
@@ -106,6 +113,10 @@ export const router = createBrowserRouter([
         element: <AttendancePage />,
       },
       {
+        path: '/attendance/:id',
+        element: <AttendanceDetailPage />,
+      },
+      {
         path: ROUTES.TIMEOFF,
         element: <TimeOffPage />,
       },
@@ -114,8 +125,24 @@ export const router = createBrowserRouter([
         element: <TimeOffRequestsPage />,
       },
       {
+        path: '/time-off/requests/:id',
+        element: <TimeOffRequestDetailPage />,
+      },
+      {
         path: ROUTES.TIMEOFF_ALLOCATIONS,
-        element: <TimeOffPage />,
+        element: <AllocationsListPage />,
+      },
+      {
+        path: '/time-off/allocations/:id',
+        element: <AllocationDetailPage />,
+      },
+      {
+        path: ROUTES.TIMEOFF_TYPES,
+        element: <TimeOffTypesListPage />,
+      },
+      {
+        path: '/time-off/types/:id',
+        element: <TimeOffTypeDetailPage />,
       },
       {
         path: ROUTES.SALARY_STRUCTURES,
@@ -123,11 +150,23 @@ export const router = createBrowserRouter([
       },
       {
         path: '/salary/structures/:id',
-        element: <SalaryStructureListPage />,
+        element: <SalaryStructureDetailPage />,
       },
       {
         path: ROUTES.SALARY_RULES,
         element: <SalaryRuleBuilderPage />,
+      },
+      {
+        path: '/salary/rules/:id',
+        element: <SalaryRuleDetailPage />,
+      },
+      {
+        path: '/payroll',
+        element: <Navigate to={ROUTES.PAYROLL_DASHBOARD} replace />,
+      },
+      {
+        path: ROUTES.PAYROLL_DASHBOARD,
+        element: <PayrollDashboardPage />,
       },
       {
         path: ROUTES.PAYRUNS,
@@ -135,7 +174,7 @@ export const router = createBrowserRouter([
       },
       {
         path: ROUTES.PAYRUN_NEW,
-        element: <PayrunWizardPage />,
+        element: <PayrunListPage />,
       },
       {
         path: '/payroll/payruns/:id',
@@ -149,18 +188,12 @@ export const router = createBrowserRouter([
         path: '/payroll/payslips/:id',
         element: <PayslipDetailPage />,
       },
-      {
-        path: ROUTES.REPORTS,
-        element: <ReportsPage />,
-      },
+
       {
         path: ROUTES.PROFILE,
         element: <ProfilePage />,
       },
-      {
-        path: ROUTES.ADMIN,
-        element: <AdminSettingsPage />,
-      },
+
     ],
   },
   {

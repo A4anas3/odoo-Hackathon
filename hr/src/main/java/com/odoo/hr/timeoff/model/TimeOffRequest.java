@@ -57,6 +57,9 @@ public class TimeOffRequest extends BaseEntity {
     @Column(name = "approved_at")
     private OffsetDateTime approvedAt;
 
+    @Column(name = "allocation_used_name", length = 100)
+    private String allocationUsedName;
+
     @Column(name = "rejection_reason", columnDefinition = "TEXT")
     private String rejectionReason;
 }

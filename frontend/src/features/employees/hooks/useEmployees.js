@@ -13,7 +13,7 @@ export const employeesKeys = {
 export function useEmployees(filters = {}) {
   return useQuery({
     queryKey: employeesKeys.list(filters),
-    queryFn: () => employeeApi.getEmployees(),
+    queryFn: () => employeeApi.getEmployees({ unpaged: true }),
     select: (employees) => {
       let filtered = [...employees];
       if (filters.search) {
@@ -37,6 +37,22 @@ export function useEmployees(filters = {}) {
       }
       return filtered;
     },
+  });
+}
+
+export function useEmployeesPaged({ page = 0, size = 12, search = '', department = 'ALL', status = 'ALL', type = 'ALL' } = {}) {
+  return useQuery({
+    queryKey: ['employees', 'paged', { page, size, search, department, status, type }],
+    queryFn: () => employeeApi.getEmployeesPaged({
+      page,
+      size,
+      search: search?.trim() || undefined,
+      department: department !== 'ALL' ? department : undefined,
+      status: status !== 'ALL' ? status : undefined,
+      type: type !== 'ALL' ? type : undefined,
+      sort: 'createdAt,desc',
+    }),
+    placeholderData: (previousData) => previousData,
   });
 }
 

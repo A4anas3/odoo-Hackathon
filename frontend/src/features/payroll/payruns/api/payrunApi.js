@@ -44,6 +44,11 @@ export const payrunApi = {
     return res.data;
   },
 
+  async computePayrun(id) {
+    const res = await apiClient.post(`/payroll/payruns/${id}/compute`);
+    return res.data;
+  },
+
   async validatePayrun(id) {
     const res = await apiClient.patch(`/payroll/payruns/${id}/validate`);
     return res.data;

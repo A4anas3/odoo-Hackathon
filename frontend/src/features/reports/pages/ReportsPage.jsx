@@ -58,7 +58,8 @@ export function ReportsPage() {
   departments.forEach((d) => deptCostMap.set(d.name, 0));
 
   contracts.forEach((c) => {
-    if (c.status === 'ACTIVE' || !c.status) {
+    const st = (c.status || '').toUpperCase();
+    if (st === 'RUNNING' || st === 'ACTIVE' || !st) {
       const dept = c.departmentName || c.employee?.departmentName || 'General';
       const wage = Number(c.salary || c.wage || 0);
       deptCostMap.set(dept, (deptCostMap.get(dept) || 0) + wage);
@@ -69,21 +70,24 @@ export function ReportsPage() {
     .map(([label, value]) => ({ label, value }))
     .filter((item) => item.value > 0);
 
-  // Calculate Real Monthly Spend Trend from Payruns
+  // Calculate Real Monthly Spend Trend from Payruns (grouped by month)
+  const monthMap = new Map();
   const sortedPayruns = [...payruns].sort((a, b) => (a.periodStart || '').localeCompare(b.periodStart || ''));
-  const monthlySpendTrend = sortedPayruns.map((p) => {
-    let label = p.name || 'Period';
-    if (p.periodStart) {
-      const d = new Date(p.periodStart);
-      if (!isNaN(d.getTime())) {
-        label = d.toLocaleDateString('default', { month: 'short', year: '2-digit' });
-      }
+  sortedPayruns.forEach((p) => {
+    if (!p.periodStart) return;
+    const d = new Date(p.periodStart);
+    if (isNaN(d.getTime())) return;
+    const sortKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleDateString('default', { month: 'short', year: '2-digit' });
+    const fullLabel = d.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+    const gross = Number(p.totalGross || p.totalNet || p.netAmount || 0);
+
+    if (!monthMap.has(sortKey)) {
+      monthMap.set(sortKey, { sortKey, label, fullLabel, value: 0 });
     }
-    return {
-      label,
-      value: Number(p.totalNet || p.netAmount || p.totalGross || 0),
-    };
+    monthMap.get(sortKey).value += gross;
   });
+  const monthlySpendTrend = Array.from(monthMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
 
   // Calculate Real Leave Count by Department
   const leaveDeptMap = new Map();

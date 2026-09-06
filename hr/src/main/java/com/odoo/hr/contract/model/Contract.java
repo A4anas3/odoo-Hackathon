@@ -55,4 +55,21 @@ public class Contract extends BaseEntity {
     @Column(name = "status", nullable = false, length = 30)
     @Builder.Default
     private String status = "DRAFT"; // DRAFT, RUNNING, EXPIRED, CANCELLED
+
+    @Column(name = "wage_type", length = 30)
+    @Builder.Default
+    private String wageType = "MONTHLY"; // MONTHLY, HOURLY
+
+    public String getWageType() {
+        if (wageType != null && !wageType.isBlank()) {
+            return wageType.trim().toUpperCase();
+        }
+        if (contractType != null) {
+            String ct = contractType.trim().toUpperCase();
+            if (ct.contains("HOUR") || ct.contains("PART_TIME") || ct.contains("CONTRACTOR")) {
+                return "HOURLY";
+            }
+        }
+        return "MONTHLY";
+    }
 }

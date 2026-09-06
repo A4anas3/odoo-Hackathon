@@ -15,9 +15,11 @@ import com.odoo.hr.schedule.repository.WorkingScheduleRepository;
 import com.odoo.hr.security.CurrentEmployeeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,6 +36,7 @@ public class ContractService {
     private final CurrentEmployeeService currentEmployeeService;
 
     @Transactional
+    @CacheEvict(value = "dashboard", allEntries = true)
     public ContractResponse createContract(ContractRequest request) {
         Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
         if (currentEmployee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(currentEmployee.getStatus())) {
@@ -49,11 +52,27 @@ public class ContractService {
 
         String status = request.getStatus() != null ? request.getStatus().trim().toUpperCase() : "DRAFT";
 
-        // Prevent overlapping active contracts
-        if ("RUNNING".equalsIgnoreCase(status)) {
-            Optional<Contract> existingRunning = contractRepository.findFirstByEmployeeIdAndStatus(employee.getId(), "RUNNING");
-            if (existingRunning.isPresent()) {
-                throw new ConflictException("Employee already has an active RUNNING contract: " + existingRunning.get().getId());
+        // When activating a new RUNNING contract, auto-expire previous running contracts into history
+        if ("RUNNING".equalsIgnoreCase(status) || "ACTIVE".equalsIgnoreCase(status)) {
+            List<Contract> existingRunningList = contractRepository.findByEmployeeId(employee.getId()).stream()
+                    .filter(c -> "RUNNING".equalsIgnoreCase(c.getStatus()) || "ACTIVE".equalsIgnoreCase(c.getStatus()))
+                    .toList();
+            for (Contract oldContract : existingRunningList) {
+                oldContract.setStatus("EXPIRED");
+                if (request.getStartDate() != null) {
+                    LocalDate autoEnd = request.getStartDate().minusDays(1);
+                    if (oldContract.getStartDate() != null && autoEnd.isBefore(oldContract.getStartDate())) {
+                        autoEnd = oldContract.getStartDate();
+                    }
+                    if (oldContract.getEndDate() == null || oldContract.getEndDate().isAfter(autoEnd)) {
+                        oldContract.setEndDate(autoEnd);
+                    }
+                } else if (oldContract.getEndDate() == null) {
+                    oldContract.setEndDate(LocalDate.now().minusDays(1));
+                }
+                contractRepository.save(oldContract);
+                log.info("Auto-expired previous contract (id={}) for employee id: {} to preserve contract history", 
+                        oldContract.getId(), employee.getId());
             }
         }
 
@@ -72,6 +91,7 @@ public class ContractService {
         Contract contract = Contract.builder()
                 .employee(employee)
                 .contractType(request.getContractType() != null ? request.getContractType() : "PERMANENT")
+                .wageType(request.getWageType() != null && !request.getWageType().isBlank() ? request.getWageType().trim().toUpperCase() : "MONTHLY")
                 .startDate(request.getStartDate())
                 .endDate(request.getEndDate())
                 .salary(request.getSalary())
@@ -106,6 +126,7 @@ public class ContractService {
     }
 
     @Transactional
+    @CacheEvict(value = "dashboard", allEntries = true)
     public ContractResponse updateContractStatus(UUID id, String newStatus) {
         Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
         if (currentEmployee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(currentEmployee.getStatus())) {
@@ -116,10 +137,26 @@ public class ContractService {
                 .orElseThrow(() -> new ResourceNotFoundException("Contract not found: " + id));
 
         String upperStatus = newStatus.trim().toUpperCase();
-        if ("RUNNING".equalsIgnoreCase(upperStatus)) {
-            Optional<Contract> existing = contractRepository.findFirstByEmployeeIdAndStatus(contract.getEmployee().getId(), "RUNNING");
-            if (existing.isPresent() && !existing.get().getId().equals(id)) {
-                throw new ConflictException("Another running contract already exists for this employee.");
+        if ("RUNNING".equalsIgnoreCase(upperStatus) || "ACTIVE".equalsIgnoreCase(upperStatus)) {
+            List<Contract> otherRunning = contractRepository.findByEmployeeId(contract.getEmployee().getId()).stream()
+                    .filter(c -> !c.getId().equals(id) && ("RUNNING".equalsIgnoreCase(c.getStatus()) || "ACTIVE".equalsIgnoreCase(c.getStatus())))
+                    .toList();
+            for (Contract oldContract : otherRunning) {
+                oldContract.setStatus("EXPIRED");
+                if (contract.getStartDate() != null) {
+                    LocalDate autoEnd = contract.getStartDate().minusDays(1);
+                    if (oldContract.getStartDate() != null && autoEnd.isBefore(oldContract.getStartDate())) {
+                        autoEnd = oldContract.getStartDate();
+                    }
+                    if (oldContract.getEndDate() == null || oldContract.getEndDate().isAfter(autoEnd)) {
+                        oldContract.setEndDate(autoEnd);
+                    }
+                } else if (oldContract.getEndDate() == null) {
+                    oldContract.setEndDate(LocalDate.now().minusDays(1));
+                }
+                contractRepository.save(oldContract);
+                log.info("Auto-expired previous contract (id={}) for employee id: {} during status change to RUNNING", 
+                        oldContract.getId(), contract.getEmployee().getId());
             }
         }
 
@@ -128,8 +165,95 @@ public class ContractService {
         return ContractResponse.fromEntity(updated);
     }
 
-    public List<ContractResponse> getAllContracts() {
-        return contractRepository.findAll().stream()
+    @Transactional
+    @CacheEvict(value = "dashboard", allEntries = true)
+    public ContractResponse updateContract(UUID id, ContractRequest request) {
+        return updateContract(id, request, Boolean.TRUE.equals(request.getPreserveHistory()));
+    }
+
+    @Transactional
+    @CacheEvict(value = "dashboard", allEntries = true)
+    public ContractResponse updateContract(UUID id, ContractRequest request, boolean preserveHistory) {
+        Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
+        if (currentEmployee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(currentEmployee.getStatus())) {
+            throw new ConflictException("Terminated or inactive employees cannot manage contracts.");
+        }
+
+        Contract contract = contractRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Contract not found: " + id));
+
+        // When preserving history, archive existing contract as EXPIRED and create a new contract
+        if (preserveHistory) {
+            contract.setStatus("EXPIRED");
+            if (request.getStartDate() != null) {
+                LocalDate autoEnd = request.getStartDate().minusDays(1);
+                if (contract.getStartDate() != null && autoEnd.isBefore(contract.getStartDate())) {
+                    autoEnd = contract.getStartDate();
+                }
+                contract.setEndDate(autoEnd);
+            } else if (contract.getEndDate() == null) {
+                contract.setEndDate(LocalDate.now().minusDays(1));
+            }
+            contractRepository.save(contract);
+            log.info("Archived existing contract {} as EXPIRED to preserve contract history for employee {}", 
+                    contract.getId(), contract.getEmployee().getId());
+
+            request.setEmployeeId(contract.getEmployee().getId());
+            if (request.getStatus() == null || request.getStatus().isBlank()) {
+                request.setStatus("RUNNING");
+            }
+            return createContract(request);
+        }
+
+        if (request.getContractType() != null) {
+            contract.setContractType(request.getContractType());
+        }
+        if (request.getWageType() != null && !request.getWageType().isBlank()) {
+            contract.setWageType(request.getWageType().trim().toUpperCase());
+        }
+        if (request.getStartDate() != null) {
+            contract.setStartDate(request.getStartDate());
+        }
+        contract.setEndDate(request.getEndDate());
+        if (request.getSalary() != null) {
+            contract.setSalary(request.getSalary());
+        }
+        if (request.getSalaryStructureId() != null) {
+            SalaryStructure salaryStructure = salaryStructureRepository.findById(request.getSalaryStructureId())
+                    .orElseThrow(() -> new ResourceNotFoundException("SalaryStructure not found: " + request.getSalaryStructureId()));
+            contract.setSalaryStructure(salaryStructure);
+        } else {
+            contract.setSalaryStructure(null);
+        }
+        if (request.getWorkingScheduleId() != null) {
+            WorkingSchedule workingSchedule = workingScheduleRepository.findById(request.getWorkingScheduleId())
+                    .orElseThrow(() -> new ResourceNotFoundException("WorkingSchedule not found: " + request.getWorkingScheduleId()));
+            contract.setWorkingSchedule(workingSchedule);
+        } else {
+            contract.setWorkingSchedule(null);
+        }
+        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+            contract.setStatus(request.getStatus().trim().toUpperCase());
+        }
+
+        Contract updated = contractRepository.save(contract);
+        log.info("Updated contract (id={}) for employee id: {}", updated.getId(), updated.getEmployee().getId());
+        return ContractResponse.fromEntity(updated);
+    }
+
+    public List<ContractResponse> getAllContracts(String status) {
+        List<Contract> contracts;
+        if (status != null && !status.isBlank()) {
+            String upper = status.trim().toUpperCase();
+            if ("ACTIVE".equals(upper)) {
+                contracts = contractRepository.findByStatusIn(List.of("RUNNING", "ACTIVE"));
+            } else {
+                contracts = contractRepository.findByStatus(upper);
+            }
+        } else {
+            contracts = contractRepository.findAll();
+        }
+        return contracts.stream()
                 .map(ContractResponse::fromEntity)
                 .toList();
     }

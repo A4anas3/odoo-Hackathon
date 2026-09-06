@@ -20,6 +20,12 @@ public class WorkingScheduleResponse {
     private UUID id;
     private String name;
     private String description;
+    private String company;
+    private String calendarType;
+    private String timezone;
+    private String status;
+    private Integer daysPerWeek;
+    private Double hoursPerWeek;
     @Builder.Default
     private List<ScheduleDayDto> days = new ArrayList<>();
 
@@ -33,6 +39,7 @@ public class WorkingScheduleResponse {
         private LocalTime startTime;
         private LocalTime endTime;
         private Integer breakMinutes;
+        private Double hours;
 
         public static ScheduleDayDto fromEntity(WorkingScheduleDay day) {
             if (day == null) return null;
@@ -42,6 +49,7 @@ public class WorkingScheduleResponse {
                     .startTime(day.getStartTime())
                     .endTime(day.getEndTime())
                     .breakMinutes(day.getBreakMinutes())
+                    .hours(day.calculateHours())
                     .build();
         }
     }
@@ -56,6 +64,12 @@ public class WorkingScheduleResponse {
                 .id(schedule.getId())
                 .name(schedule.getName())
                 .description(schedule.getDescription())
+                .company(schedule.getCompany())
+                .calendarType(schedule.getCalendarType())
+                .timezone(schedule.getTimezone())
+                .status(schedule.getStatus())
+                .daysPerWeek(schedule.getDaysPerWeek())
+                .hoursPerWeek(schedule.getHoursPerWeek())
                 .days(dayDtos)
                 .build();
     }

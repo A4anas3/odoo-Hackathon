@@ -1,5 +1,7 @@
 package com.odoo.hr.payroll.service;
 
+import com.odoo.hr.attendance.model.Attendance;
+import com.odoo.hr.attendance.repository.AttendanceRepository;
 import com.odoo.hr.common.exception.ConflictException;
 import com.odoo.hr.common.exception.ResourceNotFoundException;
 import com.odoo.hr.contract.model.Contract;
@@ -11,6 +13,8 @@ import com.odoo.hr.payroll.dto.GeneratePayrunRequest;
 import com.odoo.hr.payroll.dto.PayrunResponse;
 import com.odoo.hr.payroll.dto.PayslipEmailMessage;
 import com.odoo.hr.payroll.dto.PayslipResponse;
+import com.odoo.hr.payroll.dto.SalaryPreviewRequest;
+import com.odoo.hr.payroll.dto.SalaryPreviewResponse;
 import com.odoo.hr.payroll.model.Payrun;
 import com.odoo.hr.payroll.model.Payslip;
 import com.odoo.hr.payroll.model.PayslipLine;
@@ -28,6 +32,7 @@ import org.springframework.expression.Expression;
 import org.springframework.expression.ExpressionParser;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.expression.spel.support.StandardEvaluationContext;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,6 +57,8 @@ public class PayrollService {
     private final PayslipPdfService payslipPdfService;
     private final RabbitTemplate rabbitTemplate;
     private final EmailService emailService;
+    private final PayslipRedisCacheService payslipRedisCacheService;
+    private final AttendanceRepository attendanceRepository;
 
     private final ExpressionParser spelParser = new SpelExpressionParser();
 
@@ -102,13 +109,27 @@ public class PayrollService {
                 continue;
             }
 
-            Optional<Contract> runningContract = contractRepository.findFirstByEmployeeIdAndStatus(emp.getId(), "RUNNING");
-            if (runningContract.isEmpty()) {
-                log.warn("Skipping employee {} (id={}): no active/running contract found", emp.getFullName(), emp.getId());
+            List<Contract> applicableContracts = contractRepository.findApplicableContractsForPeriod(
+                    emp.getId(), request.getPeriodStart(), request.getPeriodEnd());
+            Contract contract = !applicableContracts.isEmpty()
+                    ? applicableContracts.get(0)
+                    : contractRepository.findFirstByEmployeeIdAndStatus(emp.getId(), "RUNNING").orElse(null);
+
+            if (contract == null) {
+                log.warn("Skipping employee {} (id={}): no applicable or running contract found for period [{} - {}]",
+                        emp.getFullName(), emp.getId(), request.getPeriodStart(), request.getPeriodEnd());
                 continue;
             }
 
-            Contract contract = runningContract.get();
+            // If payrun is scoped to a specific salary structure, skip contracts with a different structure
+            if (structure != null && contract.getSalaryStructure() != null
+                    && !structure.getId().equals(contract.getSalaryStructure().getId())) {
+                log.info("Skipping employee {} (id={}): contract structure ({}) does not match payrun structure ({})",
+                        emp.getFullName(), emp.getId(),
+                        contract.getSalaryStructure().getName(), structure.getName());
+                continue;
+            }
+
             SalaryStructure employeeStructure = contract.getSalaryStructure() != null
                     ? contract.getSalaryStructure() : structure;
 
@@ -119,6 +140,7 @@ public class PayrollService {
         }
 
         Payrun saved = payrunRepository.save(payrun);
+        payslipRedisCacheService.revokeAll();
         log.info("Generated Payrun (id={}) with {} payslips for period [{} - {}]",
                 saved.getId(), saved.getPayslips().size(), saved.getPeriodStart(), saved.getPeriodEnd());
 
@@ -128,22 +150,203 @@ public class PayrollService {
     private Payslip calculatePayslipForEmployee(Payrun payrun, Employee emp, Contract contract,
                                                 SalaryStructure structure,
                                                 LocalDate periodStart, LocalDate periodEnd) {
-        BigDecimal baseSalary = contract.getSalary() != null ? contract.getSalary() : BigDecimal.ZERO;
+        Payslip slip = Payslip.builder()
+                .payrun(payrun)
+                .employee(emp)
+                .contract(contract)
+                .salaryStructure(structure)
+                .periodStart(periodStart)
+                .periodEnd(periodEnd)
+                .status("DRAFT")
+                .lines(new ArrayList<>())
+                .build();
+
+        populatePayslipLines(slip, emp, contract, structure, periodStart, periodEnd);
+        return slip;
+    }
+
+    private boolean isHourlyContract(Contract contract) {
+        if (contract == null) return false;
+        if (contract.getWageType() != null && !contract.getWageType().isBlank()) {
+            return "HOURLY".equalsIgnoreCase(contract.getWageType().trim());
+        }
+        if (contract.getContractType() != null) {
+            String ct = contract.getContractType().toUpperCase();
+            if (ct.contains("HOUR") || ct.contains("PART_TIME") || ct.contains("CONTRACTOR")) {
+                return true;
+            }
+        }
+        if (contract.getSalaryStructure() != null && contract.getSalaryStructure().getName() != null) {
+            String name = contract.getSalaryStructure().getName().toUpperCase();
+            if (name.contains("HOURLY") || name.contains("CONTRACTOR")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void populatePayslipLines(Payslip slip, Employee emp, Contract contract,
+                                      SalaryStructure structure,
+                                      LocalDate periodStart, LocalDate periodEnd) {
+        BigDecimal contractWage = contract.getSalary() != null ? contract.getSalary() : BigDecimal.ZERO;
+
+        // Check contract wage type (Hourly vs Monthly Salaried)
+        boolean isHourly = isHourlyContract(contract);
+
+        // 1. Fetch unpaid attendance records for this period (safe check)
+        List<Attendance> attendances = Collections.emptyList();
+        if (attendanceRepository != null && emp != null && emp.getId() != null && periodStart != null && periodEnd != null) {
+            try {
+                UUID payslipId = slip.getId() != null ? slip.getId() : UUID.randomUUID();
+                attendances = attendanceRepository.findUnpaidOrCurrentPayslipAttendances(
+                        emp.getId(), payslipId, periodStart, periodEnd);
+            } catch (Exception e) {
+                log.warn("Could not query attendance for employee {} in period [{} - {}]: {}",
+                        emp.getId(), periodStart, periodEnd, e.getMessage());
+            }
+        }
+
+        // 2. Count business days (Mon-Fri) in the period
+        int scheduledWorkingDays = 0;
+        if (periodStart != null && periodEnd != null) {
+            LocalDate curr = periodStart;
+            while (!curr.isAfter(periodEnd)) {
+                if (curr.getDayOfWeek().getValue() <= 5) {
+                    scheduledWorkingDays++;
+                }
+                curr = curr.plusDays(1);
+            }
+        }
+        if (scheduledWorkingDays == 0) scheduledWorkingDays = 20;
+
+        // 3. Summarize attendance punches
+        long presentCount = 0;
+        long absentCount = 0;
+        BigDecimal totalWorkedHours = BigDecimal.ZERO;
+        BigDecimal totalOvertimeHours = BigDecimal.ZERO;
+
+        for (Attendance att : attendances) {
+            String stat = att.getStatus() != null ? att.getStatus().toUpperCase() : "PRESENT";
+            if ("PRESENT".equals(stat) || "HALF_DAY".equals(stat)) {
+                presentCount++;
+                if (att.getWorkedHours() != null && att.getWorkedHours().compareTo(BigDecimal.ZERO) > 0) {
+                    totalWorkedHours = totalWorkedHours.add(att.getWorkedHours());
+                } else {
+                    BigDecimal sch = att.getScheduledHours() != null ? att.getScheduledHours() : BigDecimal.valueOf(8);
+                    totalWorkedHours = totalWorkedHours.add("HALF_DAY".equals(stat)
+                            ? sch.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP) : sch);
+                }
+            } else if ("ABSENT".equals(stat)) {
+                absentCount++;
+            }
+            if (att.getOvertimeHours() != null && att.getOvertimeHours().compareTo(BigDecimal.ZERO) > 0) {
+                totalOvertimeHours = totalOvertimeHours.add(att.getOvertimeHours());
+            }
+        }
+
+        // 4. Calculate base salary
+        BigDecimal baseSalary;
+        BigDecimal hourlyRate;
+        BigDecimal dailyRate;
+
+        if (isHourly) {
+            hourlyRate = contractWage;
+            dailyRate = hourlyRate.multiply(BigDecimal.valueOf(8));
+            if (!attendances.isEmpty() && totalWorkedHours.compareTo(BigDecimal.ZERO) > 0) {
+                baseSalary = hourlyRate.multiply(totalWorkedHours).setScale(2, RoundingMode.HALF_UP);
+            } else {
+                // Non-breaking fallback: if no punches recorded, use standard schedule hours (e.g. 40h/week -> 8h/day)
+                double hoursPerWeek = (contract.getWorkingSchedule() != null && contract.getWorkingSchedule().getHoursPerWeek() > 0)
+                        ? contract.getWorkingSchedule().getHoursPerWeek() : 40.0;
+                double standardHours = (hoursPerWeek / 5.0) * scheduledWorkingDays;
+                totalWorkedHours = BigDecimal.valueOf(standardHours).setScale(1, RoundingMode.HALF_UP);
+                baseSalary = hourlyRate.multiply(totalWorkedHours).setScale(2, RoundingMode.HALF_UP);
+            }
+        } else {
+            // Salaried Monthly Contract
+            baseSalary = contractWage;
+            dailyRate = scheduledWorkingDays > 0
+                    ? contractWage.divide(BigDecimal.valueOf(scheduledWorkingDays), 4, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO;
+            hourlyRate = dailyRate.divide(BigDecimal.valueOf(8), 4, RoundingMode.HALF_UP);
+        }
+
         BigDecimal gross = BigDecimal.ZERO;
         BigDecimal deductions = BigDecimal.ZERO;
 
         List<PayslipLine> lines = new ArrayList<>();
         Map<String, BigDecimal> ruleAmounts = new HashMap<>();
-        ruleAmounts.put("contract.wage", baseSalary);
-        ruleAmounts.put("wage", baseSalary);
+        ruleAmounts.put("contract.wage", contractWage);
+        ruleAmounts.put("wage", contractWage);
         ruleAmounts.put("BASE", baseSalary);
+        ruleAmounts.put("worked_hours", totalWorkedHours);
+        ruleAmounts.put("present_days", BigDecimal.valueOf(presentCount));
+        ruleAmounts.put("overtime_hours", totalOvertimeHours);
 
         int seq = 1;
 
+        // Base wage line
+        String baseRuleCode = isHourly ? "HOURLY_BASE" : "BASIC";
+        String baseRuleName = isHourly
+                ? String.format("Hourly Wages (%s hrs @ %s/hr)", totalWorkedHours.setScale(1, RoundingMode.HALF_UP), hourlyRate.setScale(2, RoundingMode.HALF_UP))
+                : "Basic Salary";
+
+        lines.add(PayslipLine.builder()
+                .payslip(slip)
+                .ruleCode(baseRuleCode)
+                .ruleName(baseRuleName)
+                .category("BASIC")
+                .calculationType("BASE")
+                .amount(baseSalary)
+                .sequence(seq++)
+                .build());
+
+        gross = gross.add(baseSalary);
+        ruleAmounts.put("BASIC", baseSalary);
+        ruleAmounts.put("GROSS", gross);
+
+        // Attendance Deduction: Loss of Pay (LOP) for unexcused absent days (Salaried monthly only)
+        if (!isHourly && absentCount > 0 && dailyRate.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal lopDeduction = dailyRate.multiply(BigDecimal.valueOf(absentCount)).setScale(2, RoundingMode.HALF_UP);
+            deductions = deductions.add(lopDeduction);
+            ruleAmounts.put("LOP", lopDeduction);
+            lines.add(PayslipLine.builder()
+                    .payslip(slip)
+                    .ruleCode("LOP")
+                    .ruleName(String.format("Loss of Pay (%d Days Unpaid Absent)", absentCount))
+                    .category("DED")
+                    .calculationType("FIXED")
+                    .amount(lopDeduction)
+                    .sequence(seq++)
+                    .build());
+        }
+
+        // Attendance Addition: Overtime pay if extra hours worked
+        if (totalOvertimeHours.compareTo(BigDecimal.ZERO) > 0 && hourlyRate.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal otRate = hourlyRate.multiply(new BigDecimal("1.50"));
+            BigDecimal otPay = otRate.multiply(totalOvertimeHours).setScale(2, RoundingMode.HALF_UP);
+            gross = gross.add(otPay);
+            ruleAmounts.put("OVERTIME", otPay);
+            lines.add(PayslipLine.builder()
+                    .payslip(slip)
+                    .ruleCode("OVERTIME")
+                    .ruleName(String.format("Overtime (%s hrs @ 1.5x)", totalOvertimeHours.setScale(1, RoundingMode.HALF_UP)))
+                    .category("ALW")
+                    .calculationType("FIXED")
+                    .amount(otPay)
+                    .sequence(seq++)
+                    .build());
+        }
+
+        ruleAmounts.put("GROSS", gross);
+        ruleAmounts.put("DED", deductions);
+
+        // Now evaluate custom rules from Salary Structure if configured
         if (structure != null) {
             List<SalaryRule> rules = salaryRuleRepository.findBySalaryStructureIdOrderBySequenceAsc(structure.getId());
             for (SalaryRule rule : rules) {
                 if (!Boolean.TRUE.equals(rule.getActive())) continue;
+                if ("BASIC".equalsIgnoreCase(rule.getCode()) || "BASE".equalsIgnoreCase(rule.getCode()) || "HOURLY_BASE".equalsIgnoreCase(rule.getCode())) continue;
 
                 BigDecimal amount = evaluateSalaryRule(rule, baseSalary, gross, ruleAmounts);
                 ruleAmounts.put(rule.getCode(), amount);
@@ -152,19 +355,19 @@ public class PayrollService {
                 if ("DED".equals(cat) || "DEDUCTION".equals(cat) || "TAX".equals(cat)) {
                     deductions = deductions.add(amount);
                 } else if ("GROSS".equals(cat)) {
-                    // Update gross if explicitly defined, otherwise accumulates
                     gross = amount;
-                } else if ("NET".equals(cat)) {
-                    // Will be computed at the end
+                } else if ("NET".equals(cat) || "NET".equalsIgnoreCase(rule.getCode())) {
+                    BigDecimal computedNet = gross.subtract(deductions);
+                    amount = computedNet.compareTo(BigDecimal.ZERO) > 0 ? computedNet : BigDecimal.ZERO;
                 } else {
                     gross = gross.add(amount);
                 }
 
-                // Update context for formula dependencies
                 ruleAmounts.put("GROSS", gross);
                 ruleAmounts.put("DED", deductions);
 
                 lines.add(PayslipLine.builder()
+                        .payslip(slip)
                         .salaryRule(rule)
                         .ruleCode(rule.getCode())
                         .ruleName(rule.getName())
@@ -176,40 +379,35 @@ public class PayrollService {
             }
         }
 
-        if (lines.isEmpty()) {
-            // Default calculation when no custom rules configured
-            gross = baseSalary;
-            lines.add(PayslipLine.builder()
-                    .ruleCode("BASIC")
-                    .ruleName("Basic Salary")
-                    .category("BASIC")
-                    .calculationType("BASE")
-                    .amount(baseSalary)
-                    .sequence(seq++)
-                    .build());
-        }
-
         BigDecimal net = gross.subtract(deductions);
-        if (net.compareTo(BigDecimal.ZERO) < 0) {
-            net = BigDecimal.ZERO;
+        if (net.compareTo(BigDecimal.ZERO) < 0) net = BigDecimal.ZERO;
+
+        final BigDecimal finalNet = net;
+        lines.forEach(l -> {
+            if ("NET".equalsIgnoreCase(l.getCategory()) || "NET".equalsIgnoreCase(l.getRuleCode())) {
+                l.setAmount(finalNet);
+            }
+        });
+
+        slip.getLines().clear();
+        slip.getLines().addAll(lines);
+        slip.getLines().forEach(l -> l.setPayslip(slip));
+        slip.setGrossSalary(gross);
+        slip.setTotalDeductions(deductions);
+        slip.setNetSalary(net);
+
+        // Link attendance punches to this payslip and mark paid if payslip is already marked PAID
+        if (attendances != null && !attendances.isEmpty()) {
+            boolean isPaid = "PAID".equalsIgnoreCase(slip.getStatus());
+            for (Attendance att : attendances) {
+                att.setPayslip(slip);
+                if (isPaid) {
+                    att.setIsPaid(true);
+                    att.setPaidAt(OffsetDateTime.now());
+                }
+            }
+            attendanceRepository.saveAll(attendances);
         }
-
-        Payslip slip = Payslip.builder()
-                .payrun(payrun)
-                .employee(emp)
-                .contract(contract)
-                .salaryStructure(structure)
-                .periodStart(periodStart)
-                .periodEnd(periodEnd)
-                .grossSalary(gross)
-                .totalDeductions(deductions)
-                .netSalary(net)
-                .status("DRAFT")
-                .lines(lines)
-                .build();
-
-        lines.forEach(l -> l.setPayslip(slip));
-        return slip;
     }
 
     private BigDecimal evaluateSalaryRule(SalaryRule rule, BigDecimal baseSalary, BigDecimal currentGross, Map<String, BigDecimal> context) {
@@ -245,16 +443,20 @@ public class PayrollService {
                 evalCtx.setVariable("wage", baseSalary.doubleValue());
                 evalCtx.setVariable("GROSS", currentGross.doubleValue());
 
-                String exprStr = rule.getFormula()
-                        .replace("contract.wage", "#contract_wage")
-                        .replace("wage", "#wage")
-                        .replace("BASIC", "#BASIC")
-                        .replace("HRA", "#HRA")
-                        .replace("TRANS", "#TRANS")
-                        .replace("GROSS", "#GROSS")
-                        .replace("TAX", "#TAX")
-                        .replace("PF", "#PF")
-                        .replace("DED", "#DED");
+                String exprStr = rule.getFormula();
+                exprStr = exprStr.replaceAll("\\bcontract\\.wage\\b", "#contract_wage");
+                List<String> sortedKeys = new ArrayList<>(context.keySet());
+                sortedKeys.remove("contract.wage");
+                sortedKeys.sort((a, b) -> Integer.compare(b.length(), a.length()));
+                for (String key : sortedKeys) {
+                    if (!key.contains(".")) {
+                        exprStr = exprStr.replaceAll("\\b" + java.util.regex.Pattern.quote(key) + "\\b", "#" + key);
+                    }
+                }
+                exprStr = exprStr.replaceAll("\\bcontract_wage\\b", "#contract_wage")
+                        .replaceAll("\\bwage\\b", "#wage")
+                        .replaceAll("\\bGROSS\\b", "#GROSS")
+                        .replaceAll("\\bDED\\b", "#DED");
 
                 Expression expr = spelParser.parseExpression(exprStr);
                 Double result = expr.getValue(evalCtx, Double.class);
@@ -270,15 +472,257 @@ public class PayrollService {
         return rule.getValue() != null ? rule.getValue() : baseSalary;
     }
 
-    /**
-     * Resolves the current employee from JWT 'sub' and returns all their payslips.
-     */
+    @Transactional(readOnly = true)
+    public List<PayslipResponse> getAllPayslips(UUID payrunId, String departmentName) {
+        return getAllPayslips(payrunId, departmentName, null, null, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PayslipResponse> getAllPayslips(UUID payrunId, String departmentName, String month, Integer year) {
+        return getAllPayslips(payrunId, departmentName, month, year, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PayslipResponse> getAllPayslips(UUID payrunId, String departmentName, String month, Integer year, String search, String status) {
+        // 1. Check Redis Cache first
+        List<PayslipResponse> cached = payslipRedisCacheService.getCachedPayslips(
+                "all", payrunId, departmentName, month, year, search, status);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Query from DB with period/department filters
+        List<Payslip> slips;
+        boolean hasPeriod = payrunId != null;
+        boolean hasDept = departmentName != null && !departmentName.isBlank() && !"ALL".equalsIgnoreCase(departmentName.trim());
+        boolean hasMonth = month != null && !month.isBlank() && !"ALL".equalsIgnoreCase(month.trim());
+
+        if (hasPeriod && hasDept) {
+            slips = payslipRepository.findByPayrunIdAndDepartmentNameOrderByCreatedAtDesc(payrunId, departmentName.trim());
+        } else if (hasPeriod) {
+            slips = payslipRepository.findByPayrunIdOrderByCreatedAtDesc(payrunId);
+        } else if (hasMonth && hasDept) {
+            LocalDate startDate = parseStartDate(month, year);
+            LocalDate endDate = startDate.withDayOfMonth(startDate.lengthOfMonth());
+            slips = payslipRepository.findByPeriodBetweenAndDepartmentNameOrderByCreatedAtDesc(startDate, endDate, departmentName.trim());
+        } else if (hasMonth) {
+            LocalDate startDate = parseStartDate(month, year);
+            LocalDate endDate = startDate.withDayOfMonth(startDate.lengthOfMonth());
+            slips = payslipRepository.findByPeriodBetweenOrderByCreatedAtDesc(startDate, endDate);
+        } else if (hasDept) {
+            slips = payslipRepository.findByDepartmentNameOrderByCreatedAtDesc(departmentName.trim());
+        } else {
+            slips = payslipRepository.findAllByOrderByCreatedAtDesc();
+        }
+
+        // 3. Apply status filter if provided
+        if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status.trim())) {
+            String stat = status.trim().toUpperCase();
+            slips = slips.stream().filter(p -> p.getStatus() != null && stat.equalsIgnoreCase(p.getStatus().trim())).toList();
+        }
+
+        // 4. Apply search filter if provided
+        if (search != null && !search.isBlank()) {
+            String q = search.trim().toLowerCase();
+            slips = slips.stream().filter(p -> {
+                String name = p.getEmployee() != null ? p.getEmployee().getFullName() : "";
+                String code = p.getEmployee() != null ? p.getEmployee().getEmployeeCode() : "";
+                String struct = p.getSalaryStructure() != null ? p.getSalaryStructure().getName() : "";
+                String idStr = p.getId() != null ? p.getId().toString() : "";
+                return (name != null && name.toLowerCase().contains(q)) ||
+                       (code != null && code.toLowerCase().contains(q)) ||
+                       (struct != null && struct.toLowerCase().contains(q)) ||
+                       (idStr.toLowerCase().contains(q));
+            }).toList();
+        }
+
+        List<PayslipResponse> responses = slips.stream().map(PayslipResponse::fromEntity).toList();
+
+        // 5. Store in Redis Cache with TTL
+        payslipRedisCacheService.putCachedPayslips(
+                "all", payrunId, departmentName, month, year, search, status, responses);
+
+        return responses;
+    }
+
+    private LocalDate parseStartDate(String month, Integer year) {
+        int y = (year != null && year > 1970) ? year : LocalDate.now().getYear();
+        try {
+            if (month.contains("-")) {
+                String[] parts = month.split("-");
+                y = Integer.parseInt(parts[0].trim());
+                int m = Integer.parseInt(parts[1].trim());
+                return LocalDate.of(y, m, 1);
+            }
+            if (month.contains("_")) {
+                String[] parts = month.split("_");
+                if (parts.length >= 2) {
+                    try {
+                        y = Integer.parseInt(parts[1].trim());
+                    } catch (Exception ignored) {}
+                    month = parts[0].trim();
+                }
+            }
+            try {
+                int m = Integer.parseInt(month.trim());
+                return LocalDate.of(y, m, 1);
+            } catch (NumberFormatException nfe) {
+                for (java.time.Month m : java.time.Month.values()) {
+                    if (m.name().equalsIgnoreCase(month.trim()) ||
+                        m.name().substring(0, 3).equalsIgnoreCase(month.trim())) {
+                        return LocalDate.of(y, m, 1);
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return LocalDate.of(y, 1, 1);
+    }
+
     @Transactional(readOnly = true)
     public List<PayslipResponse> getMyPayslips() {
+        return getMyPayslips(null, null, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PayslipResponse> getMyPayslips(String month, Integer year, String search, String status) {
         UUID employeeId = currentEmployeeService.getCurrentEmployeeId();
-        return payslipRepository.findByEmployeeIdOrderByCreatedAtDesc(employeeId).stream()
-                .map(PayslipResponse::fromEntity)
-                .toList();
+        String scope = "my:" + employeeId;
+
+        // 1. Check Redis Cache
+        List<PayslipResponse> cached = payslipRedisCacheService.getCachedPayslips(
+                scope, null, null, month, year, search, status);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Query from DB
+        List<Payslip> slips;
+        boolean hasMonth = month != null && !month.isBlank() && !"ALL".equalsIgnoreCase(month.trim());
+        if (hasMonth) {
+            LocalDate startDate = parseStartDate(month, year);
+            LocalDate endDate = startDate.withDayOfMonth(startDate.lengthOfMonth());
+            slips = payslipRepository.findByPeriodBetweenOrderByCreatedAtDesc(startDate, endDate).stream()
+                    .filter(p -> p.getEmployee() != null && employeeId.equals(p.getEmployee().getId()))
+                    .toList();
+        } else {
+            slips = payslipRepository.findByEmployeeIdOrderByCreatedAtDesc(employeeId);
+        }
+
+        // 3. Apply status filter
+        if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status.trim())) {
+            String stat = status.trim().toUpperCase();
+            slips = slips.stream().filter(p -> p.getStatus() != null && stat.equalsIgnoreCase(p.getStatus().trim())).toList();
+        }
+
+        // 4. Apply search filter
+        if (search != null && !search.isBlank()) {
+            String q = search.trim().toLowerCase();
+            slips = slips.stream().filter(p -> {
+                String struct = p.getSalaryStructure() != null ? p.getSalaryStructure().getName() : "";
+                String idStr = p.getId() != null ? p.getId().toString() : "";
+                return (struct != null && struct.toLowerCase().contains(q)) ||
+                       (idStr.toLowerCase().contains(q));
+            }).toList();
+        }
+
+        List<PayslipResponse> responses = slips.stream().map(PayslipResponse::fromEntity).toList();
+
+        // 5. Store in Redis Cache
+        payslipRedisCacheService.putCachedPayslips(
+                scope, null, null, month, year, search, status, responses);
+
+        return responses;
+    }
+
+    @Transactional
+    public PayrunResponse computePayrun(UUID payrunId) {
+        Payrun payrun = payrunRepository.findById(payrunId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payrun not found with id: " + payrunId));
+
+        if ("PAID".equals(payrun.getStatus())) {
+            throw new ConflictException("Cannot recompute a payrun that has already been marked as PAID.");
+        }
+
+        SalaryStructure defaultStructure = payrun.getSalaryStructure();
+
+        for (Payslip slip : payrun.getPayslips()) {
+            if ("PAID".equals(slip.getStatus())) continue;
+
+            Contract contract = slip.getContract();
+            if (contract == null) {
+                List<Contract> contracts = contractRepository.findApplicableContractsForPeriod(
+                        slip.getEmployee().getId(), payrun.getPeriodStart(), payrun.getPeriodEnd());
+                contract = !contracts.isEmpty() ? contracts.get(0)
+                        : contractRepository.findFirstByEmployeeIdAndStatus(slip.getEmployee().getId(), "RUNNING").orElse(null);
+            }
+
+            SalaryStructure struct = (contract != null && contract.getSalaryStructure() != null)
+                    ? contract.getSalaryStructure() : defaultStructure;
+
+            if (contract != null) {
+                populatePayslipLines(slip, slip.getEmployee(), contract, struct, payrun.getPeriodStart(), payrun.getPeriodEnd());
+                slip.setStatus("DRAFT");
+            }
+        }
+
+        payrun.setCalculatedAt(OffsetDateTime.now());
+        Payrun saved = payrunRepository.save(payrun);
+        payslipRedisCacheService.revokeAll();
+        return PayrunResponse.fromEntity(saved, true);
+    }
+
+    @Transactional
+    public PayslipResponse computePayslip(UUID payslipId) {
+        Payslip slip = payslipRepository.findById(payslipId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payslip not found with id: " + payslipId));
+
+        if ("PAID".equals(slip.getStatus())) {
+            throw new ConflictException("Cannot recompute a payslip that has already been marked as PAID.");
+        }
+
+        Contract contract = slip.getContract();
+        if (contract == null) {
+            List<Contract> contracts = contractRepository.findApplicableContractsForPeriod(
+                    slip.getEmployee().getId(), slip.getPeriodStart(), slip.getPeriodEnd());
+            contract = !contracts.isEmpty() ? contracts.get(0)
+                    : contractRepository.findFirstByEmployeeIdAndStatus(slip.getEmployee().getId(), "RUNNING").orElse(null);
+        }
+
+        SalaryStructure struct = slip.getSalaryStructure();
+        if (struct == null && contract != null) {
+            struct = contract.getSalaryStructure();
+        }
+
+        if (contract != null) {
+            populatePayslipLines(slip, slip.getEmployee(), contract, struct, slip.getPeriodStart(), slip.getPeriodEnd());
+            slip.setStatus("DRAFT");
+        }
+
+        Payslip updated = payslipRepository.save(slip);
+        payslipRedisCacheService.revokeAll();
+        return PayslipResponse.fromEntity(updated);
+    }
+
+    @Transactional
+    public PayslipResponse markPayslipPaid(UUID payslipId) {
+        Payslip slip = payslipRepository.findById(payslipId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payslip not found with id: " + payslipId));
+
+        slip.setStatus("PAID");
+        Payslip updated = payslipRepository.save(slip);
+
+        List<Attendance> atts = attendanceRepository.findByPayslipId(slip.getId());
+        if (atts != null && !atts.isEmpty()) {
+            OffsetDateTime now = OffsetDateTime.now();
+            atts.forEach(a -> {
+                a.setIsPaid(true);
+                a.setPaidAt(now);
+            });
+            attendanceRepository.saveAll(atts);
+        }
+
+        payslipRedisCacheService.revokeAll();
+        return PayslipResponse.fromEntity(updated);
     }
 
     @Transactional(readOnly = true)
@@ -321,10 +765,12 @@ public class PayrollService {
         payrun.getPayslips().forEach(p -> p.setStatus("CONFIRMED"));
 
         Payrun updated = payrunRepository.save(payrun);
+        payslipRedisCacheService.revokeAll();
         return PayrunResponse.fromEntity(updated, true);
     }
 
     @Transactional
+    @CacheEvict(value = "dashboard", allEntries = true)
     public PayrunResponse payPayrun(UUID payrunId) {
         Payrun payrun = payrunRepository.findById(payrunId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payrun not found with id: " + payrunId));
@@ -333,11 +779,23 @@ public class PayrollService {
             throw new ConflictException("Payrun must be in VALIDATED or DRAFT status before paying");
         }
 
+        OffsetDateTime now = OffsetDateTime.now();
         payrun.setStatus("PAID");
-        payrun.setPaidAt(OffsetDateTime.now());
-        payrun.getPayslips().forEach(p -> p.setStatus("PAID"));
+        payrun.setPaidAt(now);
+        payrun.getPayslips().forEach(p -> {
+            p.setStatus("PAID");
+            List<Attendance> atts = attendanceRepository.findByPayslipId(p.getId());
+            if (atts != null && !atts.isEmpty()) {
+                atts.forEach(a -> {
+                    a.setIsPaid(true);
+                    a.setPaidAt(now);
+                });
+                attendanceRepository.saveAll(atts);
+            }
+        });
 
         Payrun updated = payrunRepository.save(payrun);
+        payslipRedisCacheService.revokeAll();
         return PayrunResponse.fromEntity(updated, true);
     }
 
@@ -486,5 +944,162 @@ public class PayrollService {
         }
 
         return payslipPdfService.generatePayslipPdf(payslip);
+    }
+
+    @Transactional(readOnly = true)
+    public SalaryPreviewResponse calculateSalaryPreview(SalaryPreviewRequest request) {
+        BigDecimal baseWage = request.getWage() != null ? request.getWage() : BigDecimal.ZERO;
+        if (baseWage.compareTo(BigDecimal.ZERO) < 0) {
+            baseWage = BigDecimal.ZERO;
+        }
+
+        SalaryStructure structure = null;
+        if (request.getSalaryStructureId() != null) {
+            structure = salaryStructureRepository.findById(request.getSalaryStructureId()).orElse(null);
+        }
+
+        List<SalaryRule> rules = Collections.emptyList();
+        if (structure != null) {
+            rules = salaryRuleRepository.findBySalaryStructureIdOrderBySequenceAsc(structure.getId());
+        }
+
+        Map<String, BigDecimal> overrides = request.getRuleOverrides() != null ? request.getRuleOverrides() : Collections.emptyMap();
+        String mode = request.getCalculationMode() != null ? request.getCalculationMode() : "GROSS_LOCK";
+
+        List<SalaryPreviewResponse.SalaryPreviewLineDto> lineDtos = new ArrayList<>();
+        BigDecimal gross = BigDecimal.ZERO;
+        BigDecimal deductions = BigDecimal.ZERO;
+        BigDecimal basicSalary = BigDecimal.ZERO;
+
+        Map<String, BigDecimal> ruleAmounts = new HashMap<>();
+        ruleAmounts.put("contract.wage", baseWage);
+        ruleAmounts.put("wage", baseWage);
+        ruleAmounts.put("BASE", baseWage);
+
+        int activeRuleCount = 0;
+
+        if (!rules.isEmpty()) {
+            for (SalaryRule rule : rules) {
+                if (!Boolean.TRUE.equals(rule.getActive())) continue;
+                activeRuleCount++;
+
+                BigDecimal amount;
+                boolean isOverridden = false;
+
+                if (overrides.containsKey(rule.getCode()) && overrides.get(rule.getCode()) != null) {
+                    amount = overrides.get(rule.getCode());
+                    isOverridden = true;
+                } else if ("GROSS_LOCK".equalsIgnoreCase(mode) && "GROSS".equalsIgnoreCase(rule.getCategory())) {
+                    amount = baseWage;
+                } else {
+                    amount = evaluateSalaryRule(rule, baseWage, gross, ruleAmounts);
+                }
+
+                if (amount == null) {
+                    amount = BigDecimal.ZERO;
+                }
+                amount = amount.setScale(2, RoundingMode.HALF_UP);
+                ruleAmounts.put(rule.getCode(), amount);
+
+                String cat = rule.getCategory() != null ? rule.getCategory().toUpperCase() : "ALW";
+                if ("BASIC".equalsIgnoreCase(cat) || "BASIC".equalsIgnoreCase(rule.getCode())) {
+                    basicSalary = amount;
+                    gross = gross.add(amount);
+                } else if ("DED".equalsIgnoreCase(cat) || "DEDUCTION".equalsIgnoreCase(cat) || "TAX".equalsIgnoreCase(cat)) {
+                    deductions = deductions.add(amount);
+                } else if ("GROSS".equalsIgnoreCase(cat)) {
+                    gross = amount;
+                } else if ("NET".equalsIgnoreCase(cat)) {
+                    // net computed at the end
+                } else {
+                    gross = gross.add(amount);
+                }
+
+                ruleAmounts.put("GROSS", gross);
+                ruleAmounts.put("DED", deductions);
+
+                lineDtos.add(SalaryPreviewResponse.SalaryPreviewLineDto.builder()
+                        .ruleId(rule.getId())
+                        .code(rule.getCode())
+                        .name(rule.getName())
+                        .category(cat)
+                        .calculationType(rule.getCalculationType())
+                        .percentage(rule.getPercentage())
+                        .formula(rule.getFormula())
+                        .value(rule.getValue())
+                        .monthly(amount)
+                        .annual(amount.multiply(BigDecimal.valueOf(12)))
+                        .overridden(isOverridden)
+                        .build());
+            }
+        }
+
+        // If GROSS_LOCK is selected or GROSS is 0, ensure gross aligns with baseWage
+        if ("GROSS_LOCK".equalsIgnoreCase(mode) && baseWage.compareTo(BigDecimal.ZERO) > 0) {
+            gross = baseWage;
+            // Adjust allowance line so basic + allowance matches gross
+            BigDecimal targetAllowance = baseWage.subtract(basicSalary);
+            if (targetAllowance.compareTo(BigDecimal.ZERO) >= 0) {
+                for (SalaryPreviewResponse.SalaryPreviewLineDto line : lineDtos) {
+                    if ("ALW".equalsIgnoreCase(line.getCategory()) || "ALLOWANCE".equalsIgnoreCase(line.getCategory())) {
+                        line.setMonthly(targetAllowance);
+                        line.setAnnual(targetAllowance.multiply(BigDecimal.valueOf(12)));
+                        break;
+                    }
+                }
+            }
+            // Recalculate percentage-based deductions based on the locked gross
+            deductions = BigDecimal.ZERO;
+            for (SalaryPreviewResponse.SalaryPreviewLineDto line : lineDtos) {
+                if ("DED".equalsIgnoreCase(line.getCategory()) || "DEDUCTION".equalsIgnoreCase(line.getCategory()) || "TAX".equalsIgnoreCase(line.getCategory())) {
+                    if (line.getPercentage() != null && line.getPercentage().compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal taxAmt = gross.multiply(line.getPercentage().divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP)).setScale(2, RoundingMode.HALF_UP);
+                        line.setMonthly(taxAmt);
+                        line.setAnnual(taxAmt.multiply(BigDecimal.valueOf(12)));
+                        deductions = deductions.add(taxAmt);
+                    } else {
+                        deductions = deductions.add(line.getMonthly() != null ? line.getMonthly() : BigDecimal.ZERO);
+                    }
+                }
+            }
+        } else if (gross.compareTo(BigDecimal.ZERO) == 0 && baseWage.compareTo(BigDecimal.ZERO) > 0) {
+            gross = baseWage;
+        }
+
+        if (activeRuleCount == 0) {
+            // When 0 rules configured, preserve data integrity (no fake rules)
+            gross = baseWage;
+            basicSalary = baseWage;
+            deductions = BigDecimal.ZERO;
+        }
+
+        if (basicSalary.compareTo(BigDecimal.ZERO) == 0 && gross.compareTo(BigDecimal.ZERO) > 0) {
+            basicSalary = gross;
+        }
+
+        BigDecimal net = gross.subtract(deductions);
+        if (net.compareTo(BigDecimal.ZERO) < 0) {
+            net = BigDecimal.ZERO;
+        }
+
+        BigDecimal allowances = gross.subtract(basicSalary);
+        if (allowances.compareTo(BigDecimal.ZERO) < 0) {
+            allowances = BigDecimal.ZERO;
+        }
+
+        return SalaryPreviewResponse.builder()
+                .baseWage(baseWage)
+                .grossSalary(gross)
+                .basicSalary(basicSalary)
+                .totalAllowances(allowances)
+                .totalDeductions(deductions)
+                .netSalary(net)
+                .annualGross(gross.multiply(BigDecimal.valueOf(12)))
+                .annualNet(net.multiply(BigDecimal.valueOf(12)))
+                .structureId(structure != null ? structure.getId() : null)
+                .structureName(structure != null ? structure.getName() : null)
+                .ruleCount(activeRuleCount)
+                .lines(lineDtos)
+                .build();
     }
 }

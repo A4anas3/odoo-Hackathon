@@ -18,6 +18,12 @@ public class TimeOffTypeResponse {
     private String description;
     private Boolean paid;
     private Boolean requiresApproval;
+    private String unit;
+    private Boolean requiresAllocation;
+    private String approvalType;
+    private String payrollWorkEntry;
+    private String displayColor;
+    private String configurationNotes;
     private String status;
 
     public static TimeOffTypeResponse fromEntity(TimeOffType type) {
@@ -28,6 +34,12 @@ public class TimeOffTypeResponse {
                 .description(type.getDescription())
                 .paid(type.getPaid())
                 .requiresApproval(type.getRequiresApproval())
+                .unit(type.getUnit() != null ? type.getUnit() : "Days")
+                .requiresAllocation(type.getRequiresAllocation() != null ? type.getRequiresAllocation() : true)
+                .approvalType(type.getApprovalType() != null ? type.getApprovalType() : "Manager")
+                .payrollWorkEntry(type.getPayrollWorkEntry() != null ? type.getPayrollWorkEntry() : "Leave Work Entry")
+                .displayColor(type.getDisplayColor() != null ? type.getDisplayColor() : "Blue")
+                .configurationNotes(type.getConfigurationNotes())
                 .status(type.getStatus())
                 .build();
     }

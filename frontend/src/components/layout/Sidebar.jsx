@@ -13,8 +13,6 @@ import {
   Layers,
   Calculator,
   Receipt,
-  BarChart3,
-  Settings,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -35,8 +33,6 @@ export function Sidebar({ isCollapsed, onToggleCollapse, isMobileOpen, onCloseMo
     attendance: true,
     timeoff: true,
     payroll: true,
-    reports: false,
-    admin: false,
   });
 
   const toggleSection = (key) => {
@@ -80,8 +76,9 @@ export function Sidebar({ isCollapsed, onToggleCollapse, isMobileOpen, onCloseMo
       key: 'timeoff',
       icon: CalendarDays,
       items: [
-        { label: 'Time Off Overview', path: ROUTES.TIMEOFF, icon: CalendarDays },
-        { label: 'Requests', path: ROUTES.TIMEOFF_REQUESTS, icon: FileText },
+        { label: 'Dashboard', path: ROUTES.TIMEOFF, icon: CalendarDays },
+        { label: 'Time Offs', path: ROUTES.TIMEOFF_REQUESTS, icon: FileText },
+        { label: 'Time Off Types', path: ROUTES.TIMEOFF_TYPES, icon: CalendarCheck, permission: PERMISSIONS.CAN_APPROVE_LEAVE },
         { label: 'Allocations', path: ROUTES.TIMEOFF_ALLOCATIONS, icon: Layers, permission: PERMISSIONS.CAN_APPROVE_LEAVE },
       ],
     },
@@ -91,28 +88,11 @@ export function Sidebar({ isCollapsed, onToggleCollapse, isMobileOpen, onCloseMo
       icon: Coins,
       permission: PERMISSIONS.CAN_RUN_PAYROLL,
       items: [
+        { label: 'Dashboard', path: ROUTES.PAYROLL_DASHBOARD, icon: LayoutDashboard },
         { label: 'Payruns', path: ROUTES.PAYRUNS, icon: Coins },
         { label: 'Payslips', path: ROUTES.PAYSLIPS, icon: Receipt },
         { label: 'Salary Structures', path: ROUTES.SALARY_STRUCTURES, icon: Layers, permission: PERMISSIONS.CAN_MANAGE_SALARY_STRUCTURES },
         { label: 'Salary Rules', path: ROUTES.SALARY_RULES, icon: Calculator, permission: PERMISSIONS.CAN_MANAGE_SALARY_STRUCTURES },
-      ],
-    },
-    {
-      title: 'Reports & Analytics',
-      key: 'reports',
-      icon: BarChart3,
-      permission: PERMISSIONS.CAN_VIEW_REPORTS,
-      items: [
-        { label: 'HR Analytics', path: ROUTES.REPORTS, icon: BarChart3 },
-      ],
-    },
-    {
-      title: 'Administration',
-      key: 'admin',
-      icon: Settings,
-      permission: PERMISSIONS.CAN_ACCESS_ADMIN,
-      items: [
-        { label: 'Settings', path: ROUTES.ADMIN, icon: Settings },
       ],
     },
   ];

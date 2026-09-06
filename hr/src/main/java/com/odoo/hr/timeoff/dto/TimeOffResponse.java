@@ -30,11 +30,16 @@ public class TimeOffResponse {
     private String approvedByName;
     private OffsetDateTime approvedAt;
     private String rejectionReason;
+    private String allocationUsedName;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 
     public static TimeOffResponse fromEntity(TimeOffRequest req) {
         if (req == null) return null;
+        String allocName = req.getAllocationUsedName();
+        if (allocName == null && req.getTimeOffType() != null) {
+            allocName = req.getTimeOffType().getName() + " " + (req.getStartDate() != null ? req.getStartDate().getYear() : 2026);
+        }
         return TimeOffResponse.builder()
                 .id(req.getId())
                 .employeeId(req.getEmployee() != null ? req.getEmployee().getId() : null)
@@ -50,6 +55,7 @@ public class TimeOffResponse {
                 .approvedByName(req.getApprovedBy() != null ? req.getApprovedBy().getFullName() : null)
                 .approvedAt(req.getApprovedAt())
                 .rejectionReason(req.getRejectionReason())
+                .allocationUsedName(allocName)
                 .createdAt(req.getCreatedAt())
                 .updatedAt(req.getUpdatedAt())
                 .build();

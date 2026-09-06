@@ -138,6 +138,18 @@ public class TimeOffService {
     }
 
     @Transactional(readOnly = true)
+    public List<com.odoo.hr.timeoff.dto.TimeOffAllocationResponse> getAllocations(UUID employeeId) {
+        if (employeeId != null) {
+            return timeOffAllocationRepository.findByEmployeeId(employeeId).stream()
+                    .map(com.odoo.hr.timeoff.dto.TimeOffAllocationResponse::fromEntity)
+                    .toList();
+        }
+        return timeOffAllocationRepository.findAll().stream()
+                .map(com.odoo.hr.timeoff.dto.TimeOffAllocationResponse::fromEntity)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<TimeOffResponse> getAllRequests() {
         return timeOffRequestRepository.findAll().stream()
                 .sorted((a, b) -> b.getStartDate().compareTo(a.getStartDate()))
@@ -155,11 +167,74 @@ public class TimeOffService {
                 .description(dto.getDescription())
                 .paid(dto.getPaid() != null ? dto.getPaid() : true)
                 .requiresApproval(dto.getRequiresApproval() != null ? dto.getRequiresApproval() : true)
-                .status("ACTIVE")
+                .unit(dto.getUnit() != null ? dto.getUnit() : "Days")
+                .requiresAllocation(dto.getRequiresAllocation() != null ? dto.getRequiresAllocation() : true)
+                .approvalType(dto.getApprovalType() != null ? dto.getApprovalType() : "Manager")
+                .payrollWorkEntry(dto.getPayrollWorkEntry() != null ? dto.getPayrollWorkEntry() : "Leave Work Entry")
+                .displayColor(dto.getDisplayColor() != null ? dto.getDisplayColor() : "Blue")
+                .configurationNotes(dto.getConfigurationNotes())
+                .status(dto.getStatus() != null ? dto.getStatus() : "ACTIVE")
                 .build();
         TimeOffType saved = timeOffTypeRepository.save(type);
         log.info("Created new TimeOffType: id={}, name={}", saved.getId(), saved.getName());
         return com.odoo.hr.timeoff.dto.TimeOffTypeResponse.fromEntity(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public com.odoo.hr.timeoff.dto.TimeOffTypeResponse getTypeById(UUID id) {
+        return timeOffTypeRepository.findById(id)
+                .map(com.odoo.hr.timeoff.dto.TimeOffTypeResponse::fromEntity)
+                .orElseThrow(() -> new ResourceNotFoundException("TimeOffType not found with id: " + id));
+    }
+
+    @Transactional
+    public com.odoo.hr.timeoff.dto.TimeOffTypeResponse updateTimeOffType(UUID id, com.odoo.hr.timeoff.dto.CreateTimeOffTypeDto dto) {
+        TimeOffType type = timeOffTypeRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("TimeOffType not found: " + id));
+
+        if (dto.getName() != null && !dto.getName().isBlank()) type.setName(dto.getName().trim());
+        if (dto.getDescription() != null) type.setDescription(dto.getDescription());
+        if (dto.getPaid() != null) type.setPaid(dto.getPaid());
+        if (dto.getRequiresApproval() != null) type.setRequiresApproval(dto.getRequiresApproval());
+        if (dto.getUnit() != null) type.setUnit(dto.getUnit());
+        if (dto.getRequiresAllocation() != null) type.setRequiresAllocation(dto.getRequiresAllocation());
+        if (dto.getApprovalType() != null) type.setApprovalType(dto.getApprovalType());
+        if (dto.getPayrollWorkEntry() != null) type.setPayrollWorkEntry(dto.getPayrollWorkEntry());
+        if (dto.getDisplayColor() != null) type.setDisplayColor(dto.getDisplayColor());
+        if (dto.getConfigurationNotes() != null) type.setConfigurationNotes(dto.getConfigurationNotes());
+        if (dto.getStatus() != null) type.setStatus(dto.getStatus());
+
+        TimeOffType saved = timeOffTypeRepository.save(type);
+        log.info("Updated TimeOffType: id={}, name={}", saved.getId(), saved.getName());
+        return com.odoo.hr.timeoff.dto.TimeOffTypeResponse.fromEntity(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public TimeOffResponse getRequestById(UUID id) {
+        return timeOffRequestRepository.findById(id)
+                .map(TimeOffResponse::fromEntity)
+                .orElseThrow(() -> new ResourceNotFoundException("Time off request not found with id: " + id));
+    }
+
+    @Transactional(readOnly = true)
+    public com.odoo.hr.timeoff.dto.TimeOffAllocationResponse getAllocationById(UUID id) {
+        return timeOffAllocationRepository.findById(id)
+                .map(com.odoo.hr.timeoff.dto.TimeOffAllocationResponse::fromEntity)
+                .orElseThrow(() -> new ResourceNotFoundException("Time off allocation not found with id: " + id));
+    }
+
+    @Transactional
+    public com.odoo.hr.timeoff.dto.TimeOffAllocationResponse reviewAllocation(UUID id, com.odoo.hr.timeoff.dto.ReviewAllocationDto dto) {
+        TimeOffAllocation alloc = timeOffAllocationRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Allocation not found: " + id));
+
+        Employee reviewer = currentEmployeeService.getCurrentEmployee();
+        alloc.setStatus(dto.getStatus().toUpperCase());
+        alloc.setApprovedBy(reviewer);
+
+        TimeOffAllocation saved = timeOffAllocationRepository.save(alloc);
+        log.info("Allocation {} reviewed by {} -> {}", id, reviewer.getId(), dto.getStatus());
+        return com.odoo.hr.timeoff.dto.TimeOffAllocationResponse.fromEntity(saved);
     }
 
     @Transactional
@@ -193,6 +268,8 @@ public class TimeOffService {
                     .allocatedDays(dto.getAllocatedDays())
                     .usedDays(java.math.BigDecimal.ZERO)
                     .remainingDays(dto.getAllocatedDays())
+                    .status("APPROVED")
+                    .validity("2026 Annual Balance")
                     .build();
         }
 

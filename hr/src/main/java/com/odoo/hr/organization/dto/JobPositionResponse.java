@@ -19,6 +19,7 @@ public class JobPositionResponse {
     private String departmentName;
     private String description;
     private String status;
+    private Long currentStaff;
 
     public static JobPositionResponse fromEntity(JobPosition job) {
         if (job == null) return null;

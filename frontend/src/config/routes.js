@@ -17,15 +17,22 @@ export const ROUTES = {
   SCHEDULES: '/schedules',
   
   ATTENDANCE: '/attendance',
+  ATTENDANCE_DETAIL: (id = ':id') => `/attendance/${id}`,
   
   TIMEOFF: '/time-off',
   TIMEOFF_REQUESTS: '/time-off/requests',
+  TIMEOFF_REQUEST_DETAIL: (id = ':id') => `/time-off/requests/${id}`,
   TIMEOFF_ALLOCATIONS: '/time-off/allocations',
+  TIMEOFF_ALLOCATION_DETAIL: (id = ':id') => `/time-off/allocations/${id}`,
+  TIMEOFF_TYPES: '/time-off/types',
+  TIMEOFF_TYPE_DETAIL: (id = ':id') => `/time-off/types/${id}`,
   
   SALARY_STRUCTURES: '/salary/structures',
   SALARY_STRUCTURE_DETAIL: (id = ':id') => `/salary/structures/${id}`,
   SALARY_RULES: '/salary/rules',
+  SALARY_RULE_DETAIL: (id = ':id') => `/salary/rules/${id}`,
   
+  PAYROLL_DASHBOARD: '/payroll/dashboard',
   PAYRUNS: '/payroll/payruns',
   PAYRUN_NEW: '/payroll/payruns/new',
   PAYRUN_DETAIL: (id = ':id') => `/payroll/payruns/${id}`,
@@ -33,7 +40,5 @@ export const ROUTES = {
   PAYSLIPS: '/payroll/payslips',
   PAYSLIP_DETAIL: (id = ':id') => `/payroll/payslips/${id}`,
   
-  REPORTS: '/reports',
   PROFILE: '/profile',
-  ADMIN: '/admin',
 };

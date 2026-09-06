@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/useToast';
 import { formatCurrency } from '@/lib/utils/formatters';
 import { ROUTES } from '@/config/routes';
 import { employeeApi } from '@/features/employees/api/employeeApi';
+import { contractApi } from '@/features/contracts/api/contractApi';
 import { salaryStructureApi } from '@/features/salary/structures/api/salaryStructureApi';
 import { payrunApi } from '@/features/payroll/payruns/api/payrunApi';
 import {
@@ -48,10 +49,10 @@ export function PayrunWizardPage() {
   const toast = useToast();
 
   const [currentStep, setCurrentStep] = useState(1);
-  const [periodStart, setPeriodStart] = useState('2026-10-01');
-  const [periodEnd, setPeriodEnd] = useState('2026-10-31');
+  const [periodStart, setPeriodStart] = useState('2026-02-01');
+  const [periodEnd, setPeriodEnd] = useState('2026-02-28');
   const [selectedStructureId, setSelectedStructureId] = useState('');
-  const [structure, setStructure] = useState('Regular Full-Time');
+  const [structure, setStructure] = useState('');
   const [selectedEmployees, setSelectedEmployees] = useState([]);
   const [isCalculating, setIsCalculating] = useState(false);
   const [isCalculated, setIsCalculated] = useState(false);
@@ -65,6 +66,22 @@ export function PayrunWizardPage() {
   });
   const employees = employeesData?.content || (Array.isArray(employeesData) ? employeesData : []);
 
+  const { data: contracts = [] } = useQuery({
+    queryKey: ['contracts'],
+    queryFn: () => contractApi.getContracts(),
+  });
+
+  const empContractMap = React.useMemo(() => {
+    const map = {};
+    contracts.forEach((c) => {
+      const wage = Number(c.salary || c.wage) || 0;
+      if (c.employeeId && (!map[c.employeeId] || c.status === 'RUNNING')) {
+        map[c.employeeId] = wage;
+      }
+    });
+    return map;
+  }, [contracts]);
+
   const { data: structures = [] } = useQuery({
     queryKey: ['salary-structures'],
     queryFn: salaryStructureApi.getAllStructures,
@@ -75,9 +92,13 @@ export function PayrunWizardPage() {
     name: `${emp.firstName} ${emp.lastName}`,
     code: emp.employeeCode || `EMP-${emp.id?.substring(0, 4)}`,
     dept: emp.departmentName || emp.department?.name || 'General',
-    wage: emp.wage || 5000,
+    wage: empContractMap[emp.id] ?? (emp.wage || 0),
     bankOk: Boolean(emp.bankAccountNo && emp.ifscCode),
   }));
+
+  const selectedTotalWage = staffList
+    .filter((s) => selectedEmployees.includes(s.id))
+    .reduce((sum, s) => sum + (Number(s.wage) || 0), 0);
 
   useEffect(() => {
     if (staffList.length > 0 && selectedEmployees.length === 0) {
@@ -267,12 +288,27 @@ export function PayrunWizardPage() {
               </FormField>
               <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1.5 text-slate-600">
                 <p className="font-semibold text-slate-800">
-                  Assigned Rules (
-                  {structures.find((s) => s.name === structure)?.rules?.length || 7}):
+                  Assigned Structure Rules (
+                  {structures.find((s) => s.name === structure)?.rules?.length || 0}):
                 </p>
-                <p className="font-mono text-[11px] text-[#714B67]">
-                  BASIC (50%) + HRA (25%) + TRANS ($300) - TAX (10%) - PF (5%) = NET
-                </p>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {structures.find((s) => s.name === structure)?.rules?.length > 0 ? (
+                    structures
+                      .find((s) => s.name === structure)
+                      .rules.map((r) => (
+                        <span
+                          key={r.id || r.code}
+                          className="px-2 py-0.5 rounded bg-white border border-slate-200 text-[11px] font-mono text-slate-700"
+                        >
+                          <strong>{r.code}</strong>: {r.formula || (r.percentage ? `${r.percentage}%` : formatCurrency(r.value || 0, 'INR'))}
+                        </span>
+                      ))
+                  ) : (
+                    <span className="text-slate-500 font-mono text-[11px]">
+                      Dynamic calculation rules configured in database for this structure.
+                    </span>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -285,22 +321,32 @@ export function PayrunWizardPage() {
               title="Step 3: Select Eligible Employees"
               subtitle="Choose which personnel to calculate payslips for"
               action={
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   <Button variant="secondary" size="xs" onClick={toggleAll}>
                     {selectedEmployees.length === staffList.length ? 'Deselect All' : 'Select All'}
                   </Button>
-                  <span className="text-xs font-semibold text-slate-600">
-                    {selectedCount} of {staffList.length} selected
-                  </span>
+                  <div className="flex items-center gap-2 px-2.5 py-1 bg-white border border-slate-200 rounded text-xs shadow-2xs">
+                    <span className="text-slate-500 font-medium">Selected:</span>
+                    <span className="font-bold text-[#714B67] font-mono">
+                      {selectedCount} / {staffList.length}
+                    </span>
+                    <span className="text-slate-300">|</span>
+                    <span className="text-slate-500 font-medium">Total Wages:</span>
+                    <span className="font-extrabold text-emerald-700 font-mono">
+                      {formatCurrency(selectedTotalWage, 'INR')}
+                    </span>
+                  </div>
                 </div>
               }
             />
             <CardContent className="p-0">
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto">
                 {staffList.map((staff) => (
                   <div
                     key={staff.id}
-                    className="p-3 flex items-center justify-between hover:bg-slate-50/50 cursor-pointer"
+                    className={`p-3 flex items-center justify-between hover:bg-slate-50/70 cursor-pointer transition-colors ${
+                      selectedEmployees.includes(staff.id) ? 'bg-[#714B67]/5' : ''
+                    }`}
                     onClick={() => toggleEmployee(staff.id)}
                   >
                     <div className="flex items-center gap-3">
@@ -317,11 +363,21 @@ export function PayrunWizardPage() {
                         </span>
                       </div>
                     </div>
-                    <span className="font-bold text-xs text-slate-900">
-                      {formatCurrency(staff.wage)}
+                    <span className="font-bold text-xs text-slate-900 font-mono">
+                      {formatCurrency(staff.wage, 'INR')}
                     </span>
                   </div>
                 ))}
+              </div>
+
+              {/* Sticky Selected Total Footer */}
+              <div className="p-3 bg-slate-50 border-t-2 border-slate-200 flex items-center justify-between text-xs font-semibold">
+                <span className="text-slate-700">
+                  Total Selected ({selectedCount} of {staffList.length} employee{selectedCount !== 1 ? 's' : ''}):
+                </span>
+                <span className="text-sm font-extrabold text-emerald-700 font-mono">
+                  {formatCurrency(selectedTotalWage, 'INR')}
+                </span>
               </div>
             </CardContent>
           </Card>
@@ -335,7 +391,7 @@ export function PayrunWizardPage() {
               subtitle="Verify batch parameters before triggering formula calculations"
             />
             <CardContent className="p-5 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-100">
                   <span className="text-[10px] text-slate-400 font-semibold uppercase block">Period</span>
                   <span className="text-xs font-bold text-slate-900 mt-1 block">
@@ -344,12 +400,18 @@ export function PayrunWizardPage() {
                 </div>
                 <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-100">
                   <span className="text-[10px] text-slate-400 font-semibold uppercase block">Structure</span>
-                  <span className="text-xs font-bold text-slate-900 mt-1 block">{structure}</span>
+                  <span className="text-xs font-bold text-slate-900 mt-1 block">{structure || 'Standard'}</span>
                 </div>
                 <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-100">
                   <span className="text-[10px] text-slate-400 font-semibold uppercase block">Headcount</span>
                   <span className="text-xs font-bold text-[#714B67] mt-1 block">
                     {selectedCount} Employees Enrolled
+                  </span>
+                </div>
+                <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-100">
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase block">Total Wages</span>
+                  <span className="text-xs font-extrabold text-emerald-700 mt-1 block font-mono">
+                    {formatCurrency(selectedTotalWage, 'INR')}
                   </span>
                 </div>
               </div>

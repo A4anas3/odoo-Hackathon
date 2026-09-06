@@ -59,4 +59,8 @@ public class CreateEmployeeRequest {
     private String emergencyContactName;
 
     private String emergencyContactPhone;
+
+    private String password;
+
+    private String role;
 }

@@ -1,167 +1,154 @@
 package com.odoo.hr.security;
 
-import com.odoo.hr.common.exception.ResourceNotFoundException;
+import com.odoo.hr.contract.model.Contract;
+import com.odoo.hr.contract.repository.ContractRepository;
 import com.odoo.hr.employee.model.Employee;
 import com.odoo.hr.employee.repository.EmployeeRepository;
+import com.odoo.hr.organization.model.Department;
+import com.odoo.hr.organization.model.JobPosition;
+import com.odoo.hr.organization.repository.DepartmentRepository;
+import com.odoo.hr.organization.repository.JobPositionRepository;
+import com.odoo.hr.salary.model.SalaryStructure;
+import com.odoo.hr.salary.repository.SalaryStructureRepository;
+import com.odoo.hr.schedule.model.WorkingSchedule;
+import com.odoo.hr.schedule.repository.WorkingScheduleRepository;
+import com.odoo.hr.user.model.User;
+import com.odoo.hr.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Bridges JWT Authentication with the internal Employee domain.
- * Pipeline: JWT 'email' / 'sub' claim -> Employee table -> Employee.id
+ * Bridges authenticated JWT identity with the internal Employee domain.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CurrentEmployeeService {
 
+    private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
+    private final ContractRepository contractRepository;
+    private final DepartmentRepository departmentRepository;
+    private final JobPositionRepository jobPositionRepository;
+    private final WorkingScheduleRepository workingScheduleRepository;
+    private final SalaryStructureRepository salaryStructureRepository;
 
     /**
-     * Extracts the primary email identifier from the current SecurityContext JWT.
+     * Extracts the primary email identifier from the current SecurityContext.
      */
     public String getAuthenticatedEmail() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getName())) {
             return "admin@company.com";
         }
-
-        Object principal = authentication.getPrincipal();
-        if (principal instanceof Jwt jwt) {
-            String email = jwt.getClaimAsString("email");
-            if (email != null && !email.isBlank()) {
-                return email;
-            }
-            String sub = jwt.getSubject();
-            if (sub != null && sub.contains("@")) {
-                return sub;
-            }
-        }
-
         String name = authentication.getName();
         return (name != null && !name.isBlank()) ? name : "admin@company.com";
     }
 
-    /**
-     * Extracts the auth provider user ID (JWT 'sub' claim) from the current SecurityContext.
-     */
     public String getAuthenticatedAuthProviderUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getName())) {
-            return "admin@company.com";
-        }
-
-        Object principal = authentication.getPrincipal();
-        if (principal instanceof Jwt jwt) {
-            String sub = jwt.getSubject();
-            if (sub != null && !sub.isBlank()) {
-                return sub;
-            }
-            String email = jwt.getClaimAsString("email");
-            if (email != null && !email.isBlank()) {
-                return email;
-            }
-        }
-
-        return authentication.getName();
+        return getAuthenticatedEmail();
     }
 
     /**
      * Looks up the currently authenticated Employee in the database.
-     * Matches primarily on JWT email claim, secondary on authProviderUserId (sub).
+     * Checks User.employee link first, then falls back to Employee.email.
      */
     public Employee getCurrentEmployee() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        String sub = null;
-        String email = null;
+        String email = getAuthenticatedEmail();
 
-        if (authentication != null && authentication.getPrincipal() instanceof Jwt jwt) {
-            sub = jwt.getSubject();
-            email = jwt.getClaimAsString("email");
-            if (email == null || email.isBlank()) {
-                email = jwt.getClaimAsString("preferred_username");
-            }
-            if ((email == null || email.isBlank()) && sub != null && sub.contains("@")) {
-                email = sub;
-            }
-        } else if (authentication != null) {
-            email = authentication.getName();
-            sub = email;
+        // 1. Direct link through User account
+        Optional<User> userOpt = userRepository.findByEmailIgnoreCase(email);
+        if (userOpt.isPresent() && userOpt.get().getEmployee() != null) {
+            return userOpt.get().getEmployee();
         }
 
-        if (email == null || email.isBlank() || "anonymousUser".equals(email)) {
-            email = "admin@company.com";
-        }
-
-        final String lookupEmail = email;
-        final String lookupSub = sub;
-
-        // 1. Primary match by Email
-        Optional<Employee> byEmail = employeeRepository.findByEmail(lookupEmail);
-        if (byEmail.isPresent()) {
-            Employee emp = byEmail.get();
-            if (lookupSub != null && !lookupSub.isBlank() && !lookupSub.equals(emp.getAuthProviderUserId())) {
-                Optional<Employee> existingHolder = employeeRepository.findByAuthProviderUserId(lookupSub);
-                if (existingHolder.isPresent() && !existingHolder.get().getId().equals(emp.getId())) {
-                    Employee old = existingHolder.get();
-                    old.setAuthProviderUserId("unlinked-" + old.getId());
-                    employeeRepository.save(old);
-                }
-                emp.setAuthProviderUserId(lookupSub);
-                return employeeRepository.save(emp);
+        // 2. Lookup employee by email
+        Optional<Employee> empOpt = employeeRepository.findByEmail(email);
+        if (empOpt.isPresent()) {
+            Employee emp = empOpt.get();
+            // Link back to user if user exists
+            if (userOpt.isPresent() && userOpt.get().getEmployee() == null) {
+                User u = userOpt.get();
+                u.setEmployee(emp);
+                userRepository.save(u);
             }
             return emp;
         }
 
-        // 2. Secondary match by authProviderUserId (sub)
-        if (lookupSub != null && !lookupSub.isBlank()) {
-            Optional<Employee> bySub = employeeRepository.findByAuthProviderUserId(lookupSub);
-            if (bySub.isPresent()) {
-                return bySub.get();
-            }
-        }
-
-        // 3. Dedicated auto-provision for newly registered users
-        return autoProvisionEmployee(lookupSub != null ? lookupSub : lookupEmail, lookupEmail);
+        // 3. Fallback auto-provisioning for development/onboarding
+        return autoProvisionEmployee(email);
     }
 
-    private synchronized Employee autoProvisionEmployee(String authProviderUserId, String email) {
-        String namePart = email.split("@")[0];
+    private synchronized Employee autoProvisionEmployee(String email) {
+        String namePart = email.contains("@") ? email.split("@")[0] : email;
         long count = employeeRepository.count() + 1;
         String empCode = String.format("EMP-%03d", count);
 
+        Department defaultDept = departmentRepository.findAll().stream().findFirst().orElse(null);
+        JobPosition defaultJob = jobPositionRepository.findAll().stream().findFirst().orElse(null);
+        WorkingSchedule defaultSchedule = workingScheduleRepository.findByName("40 Hours / Week")
+                .orElseGet(() -> workingScheduleRepository.findAll().stream().findFirst().orElse(null));
+        SalaryStructure defaultStruct = salaryStructureRepository.findByName("Regular Salary")
+                .orElseGet(() -> salaryStructureRepository.findAll().stream().findFirst().orElse(null));
+
         Employee newEmp = Employee.builder()
-                .authProviderUserId(authProviderUserId)
+                .authProviderUserId(email)
                 .email(email)
-                .firstName(Character.toUpperCase(namePart.charAt(0)) + namePart.substring(1))
+                .firstName(Character.toUpperCase(namePart.charAt(0)) + (namePart.length() > 1 ? namePart.substring(1) : ""))
                 .lastName("")
                 .employeeCode(empCode)
+                .phone("+91 98200 " + String.format("%05d", (int)(count * 17) % 90000 + 10000))
+                .address("Indiranagar, Bengaluru, Karnataka")
+                .department(defaultDept)
+                .jobPosition(defaultJob)
+                .workingSchedule(defaultSchedule)
                 .status("ACTIVE")
                 .employeeType("FULL_TIME")
-                .joiningDate(java.time.LocalDate.now())
+                .joiningDate(LocalDate.now())
+                .bankName("HDFC Bank")
+                .bankAccountNo(String.format("%014d", 50100000000000L + count * 291837L))
+                .ifscCode("HDFC0001234")
+                .emergencyContactName("Office HR")
+                .emergencyContactPhone("+91 98200 10101")
                 .build();
 
-        log.info("Auto-provisioned dedicated Employee profile for authenticated user: email={} code={}", email, empCode);
-        return employeeRepository.save(newEmp);
+        Employee saved = employeeRepository.save(newEmp);
+        log.info("Auto-provisioned Employee profile with complete data for user: email={} code={}", email, empCode);
+
+        // Auto-provision running contract
+        if (defaultStruct != null) {
+            Contract contract = Contract.builder()
+                    .employee(saved)
+                    .contractType("PERMANENT")
+                    .startDate(LocalDate.now().minusMonths(1))
+                    .salary(new BigDecimal("75000.00"))
+                    .salaryStructure(defaultStruct)
+                    .workingSchedule(defaultSchedule)
+                    .status("RUNNING")
+                    .build();
+            contractRepository.save(contract);
+        }
+
+        userRepository.findByEmailIgnoreCase(email).ifPresent(u -> {
+            u.setEmployee(saved);
+            userRepository.save(u);
+        });
+
+        return saved;
     }
 
-    /**
-     * Returns the internal primary key (UUID) of the current authenticated employee.
-     */
     public UUID getCurrentEmployeeId() {
         return getCurrentEmployee().getId();
     }
 
-    /**
-     * Optional lookup for cases like onboarding where the profile might not yet exist.
-     */
     public Optional<Employee> findCurrentEmployee() {
         try {
             return Optional.of(getCurrentEmployee());

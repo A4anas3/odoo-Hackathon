@@ -46,6 +46,16 @@ export const timeoffApi = {
     }
   },
 
+  async getAllocations(employeeId) {
+    try {
+      const url = employeeId ? `/time-off/allocations?employeeId=${employeeId}` : '/time-off/allocations';
+      const res = await apiClient.get(url);
+      return Array.isArray(res.data) ? res.data : [];
+    } catch {
+      return [];
+    }
+  },
+
   async submitRequest(data) {
     const res = await apiClient.post('/time-off/requests', data);
     return res.data;
@@ -53,6 +63,31 @@ export const timeoffApi = {
 
   async reviewRequest(id, status, rejectionReason = '') {
     const res = await apiClient.patch(`/time-off/requests/${id}/review`, { status, rejectionReason });
+    return res.data;
+  },
+
+  async getRequestById(id) {
+    const res = await apiClient.get(`/time-off/requests/${id}`);
+    return res.data;
+  },
+
+  async getAllocationById(id) {
+    const res = await apiClient.get(`/time-off/allocations/${id}`);
+    return res.data;
+  },
+
+  async reviewAllocation(id, status, rejectionReason = '') {
+    const res = await apiClient.patch(`/time-off/allocations/${id}/review`, { status, rejectionReason });
+    return res.data;
+  },
+
+  async getTypeById(id) {
+    const res = await apiClient.get(`/time-off/types/${id}`);
+    return res.data;
+  },
+
+  async updateType(id, data) {
+    const res = await apiClient.put(`/time-off/types/${id}`, data);
     return res.data;
   },
 

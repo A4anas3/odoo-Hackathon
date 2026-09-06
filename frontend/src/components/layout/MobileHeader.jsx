@@ -4,6 +4,7 @@ import { useCurrentUser } from '../../hooks/auth/useCurrentUser';
 import { Avatar } from '../ui/Avatar';
 import { Link } from 'react-router-dom';
 import { ROUTES } from '../../config/routes';
+import { AttendanceWidget } from '../../features/attendance/components/AttendanceWidget';
 
 export function MobileHeader({ onOpenSidebar }) {
   const { user, logout } = useCurrentUser();
@@ -27,6 +28,7 @@ export function MobileHeader({ onOpenSidebar }) {
       </div>
 
       <div className="flex items-center gap-2">
+        <AttendanceWidget />
         <Link to={ROUTES.PROFILE}>
           <Avatar name={user?.email || 'User'} size="sm" />
         </Link>

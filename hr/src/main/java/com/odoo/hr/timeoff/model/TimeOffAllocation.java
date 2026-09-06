@@ -46,4 +46,19 @@ public class TimeOffAllocation extends BaseEntity {
 
     @Column(name = "remaining_days", nullable = false, precision = 5, scale = 2)
     private BigDecimal remainingDays;
+
+    @Column(name = "status", length = 30)
+    @Builder.Default
+    private String status = "APPROVED"; // APPROVED, TO_APPROVE, REFUSED
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "approved_by", foreignKey = @ForeignKey(name = "fk_allocations_approved_by"))
+    private Employee approvedBy;
+
+    @Column(name = "validity", length = 100)
+    @Builder.Default
+    private String validity = "2026 Annual Balance";
+
+    @Column(name = "description", columnDefinition = "TEXT")
+    private String description;
 }

@@ -10,6 +10,15 @@ export const attendanceApi = {
     }
   },
 
+  async getAttendanceSummary() {
+    try {
+      const res = await apiClient.get('/attendance/summary');
+      return res.data;
+    } catch {
+      return null;
+    }
+  },
+
   async checkIn() {
     const res = await apiClient.post('/attendance/check-in');
     return res.data;
@@ -23,7 +32,7 @@ export const attendanceApi = {
   async getMyAttendance(params = {}) {
     try {
       const res = await apiClient.get('/attendance/my', { params });
-      return Array.isArray(res.data) ? res.data : [];
+      return res.data;
     } catch {
       return [];
     }
@@ -33,10 +42,10 @@ export const attendanceApi = {
     return this.getMyAttendance(params);
   },
 
-  async getAllAttendance() {
+  async getAllAttendance(params = {}) {
     try {
-      const res = await apiClient.get('/attendance');
-      return Array.isArray(res.data) ? res.data : [];
+      const res = await apiClient.get('/attendance', { params });
+      return res.data;
     } catch {
       return [];
     }
@@ -45,10 +54,20 @@ export const attendanceApi = {
   async getEmployeeAttendance(employeeId, params = {}) {
     try {
       const res = await apiClient.get(`/attendance/employee/${employeeId}`, { params });
-      return Array.isArray(res.data) ? res.data : [];
+      return res.data;
     } catch {
       return [];
     }
+  },
+
+  async getAttendanceById(id) {
+    const res = await apiClient.get(`/attendance/${id}`);
+    return res.data;
+  },
+
+  async updateAttendance(id, data) {
+    const res = await apiClient.put(`/attendance/${id}`, data);
+    return res.data;
   },
 
   async correctAttendance(id, data) {

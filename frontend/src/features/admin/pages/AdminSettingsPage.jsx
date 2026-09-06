@@ -13,30 +13,30 @@ export function AdminSettingsPage() {
       description="Service connection health, microservice architecture status, and security keys."
     >
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Auth Microservice Status */}
+        {/* Monolithic Auth Status */}
         <Card>
           <CardHeader
-            title="Authentication Microservice"
-            subtitle="Centralized IdP (peoplePay auth-service)"
+            title="Authentication & RBAC"
+            subtitle="Integrated Monolithic Security (Spring Boot HR)"
           />
           <CardContent className="space-y-3 text-xs">
             <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
               <span className="text-slate-500">Service URL</span>
-              <span className="font-mono font-semibold text-slate-800">http://localhost:8085</span>
+              <span className="font-mono font-semibold text-slate-800">http://localhost:9000</span>
             </div>
             <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
               <span className="text-slate-500">Signature Algorithm</span>
-              <span className="font-mono font-semibold text-slate-800">RS256 (Asymmetric RSA)</span>
+              <span className="font-mono font-semibold text-slate-800">HS256 (Stateless HMAC-SHA256)</span>
             </div>
             <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
-              <span className="text-slate-500">Public Key Verification</span>
+              <span className="text-slate-500">Token Persistence</span>
               <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Active (public_key.pem)
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Truly Stateless (No DB Token Tables)
               </span>
             </div>
             <div className="flex justify-between items-center py-1.5">
-              <span className="text-slate-500">Token Rotation</span>
-              <span className="font-semibold text-slate-800">Enabled (Opaque Hash SHA-256)</span>
+              <span className="text-slate-500">Role System</span>
+              <span className="font-semibold text-slate-800">Typed Role Enum + Employee Linkage</span>
             </div>
           </CardContent>
         </Card>

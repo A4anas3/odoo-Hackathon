@@ -21,6 +21,7 @@ public class ContractRequest {
     private UUID employeeId;
 
     private String contractType;
+    private String wageType;
 
     @NotNull(message = "Start date is required")
     private LocalDate startDate;
@@ -36,4 +37,6 @@ public class ContractRequest {
     private UUID workingScheduleId;
 
     private String status;
+
+    private Boolean preserveHistory;
 }

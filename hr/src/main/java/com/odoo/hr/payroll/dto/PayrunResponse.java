@@ -11,7 +11,11 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Data
@@ -50,6 +54,15 @@ public class PayrunResponse {
         List<String> warningsList = new ArrayList<>();
 
         if (payrun.getPayslips() != null) {
+            Map<UUID, Integer> empSlipCount = new HashMap<>();
+            for (var s : payrun.getPayslips()) {
+                if (s.getEmployee() != null && s.getEmployee().getId() != null) {
+                    empSlipCount.merge(s.getEmployee().getId(), 1, Integer::sum);
+                }
+            }
+
+            Set<UUID> duplicateSeen = new HashSet<>();
+
             for (var slip : payrun.getPayslips()) {
                 BigDecimal g = slip.getGrossSalary() != null ? slip.getGrossSalary() : BigDecimal.ZERO;
                 BigDecimal d = slip.getTotalDeductions() != null ? slip.getTotalDeductions() : BigDecimal.ZERO;
@@ -61,10 +74,41 @@ public class PayrunResponse {
 
                 if (slip.getEmployee() != null) {
                     var emp = slip.getEmployee();
-                    if (emp.getBankAccountNo() == null || emp.getBankAccountNo().isBlank() ||
-                        emp.getIfscCode() == null || emp.getIfscCode().isBlank()) {
-                        warningsList.add(String.format("Employee %s (%s) is missing verified bank account / IFSC details.",
-                                emp.getFullName(), emp.getEmployeeCode() != null ? emp.getEmployeeCode() : "EMP"));
+                    String code = emp.getEmployeeCode() != null ? emp.getEmployeeCode() : "EMP";
+
+                    // 1. Duplicate Payslip Check
+                    if (emp.getId() != null && empSlipCount.getOrDefault(emp.getId(), 0) > 1 && duplicateSeen.add(emp.getId())) {
+                        warningsList.add(String.format("[Duplicate Payslip] %s (%s): %d duplicate payslips detected in this payrun.",
+                                emp.getFullName(), code, empSlipCount.get(emp.getId())));
+                    }
+
+                    // 2. Missing Banking Details Check
+                    boolean missingBank = emp.getBankAccountNo() == null || emp.getBankAccountNo().isBlank();
+                    boolean missingIfsc = emp.getIfscCode() == null || emp.getIfscCode().isBlank();
+                    if (missingBank && missingIfsc) {
+                        warningsList.add(String.format("[Missing Bank Details] %s (%s): Bank account number and IFSC code are missing.",
+                                emp.getFullName(), code));
+                    } else if (missingBank) {
+                        warningsList.add(String.format("[Missing Bank Account] %s (%s): Bank account number is missing.",
+                                emp.getFullName(), code));
+                    } else if (missingIfsc) {
+                        warningsList.add(String.format("[Missing IFSC] %s (%s): IFSC routing code is missing.",
+                                emp.getFullName(), code));
+                    }
+
+                    // 3. Contract Issue Check
+                    if (slip.getContract() == null) {
+                        warningsList.add(String.format("[Missing Contract] %s (%s): No employment contract linked to payslip.",
+                                emp.getFullName(), code));
+                    } else if ("CANCELLED".equalsIgnoreCase(slip.getContract().getStatus()) || "TERMINATED".equalsIgnoreCase(slip.getContract().getStatus())) {
+                        warningsList.add(String.format("[Contract %s] %s (%s): Linked contract is %s.",
+                                slip.getContract().getStatus(), emp.getFullName(), code, slip.getContract().getStatus().toLowerCase()));
+                    }
+
+                    // 4. Zero / Negative Pay Check
+                    if (n.compareTo(BigDecimal.ZERO) <= 0) {
+                        warningsList.add(String.format("[Zero Net Pay] %s (%s): Net pay is ₹%s (Gross: ₹%s, Deductions: ₹%s).",
+                                emp.getFullName(), code, n.toPlainString(), g.toPlainString(), d.toPlainString()));
                     }
                 }
             }
@@ -76,9 +120,11 @@ public class PayrunResponse {
             }
         }
 
-        String periodName = String.format("Payrun %s (%s - %s)",
-                payrun.getSalaryStructure() != null ? payrun.getSalaryStructure().getName() : "Standard",
-                payrun.getPeriodStart(), payrun.getPeriodEnd());
+        String monthName = payrun.getPeriodStart() != null
+                ? (payrun.getPeriodStart().getMonth().name().charAt(0) + payrun.getPeriodStart().getMonth().name().substring(1).toLowerCase())
+                : "Payrun";
+        int year = payrun.getPeriodStart() != null ? payrun.getPeriodStart().getYear() : 2026;
+        String periodName = monthName + " " + year;
 
         return PayrunResponse.builder()
                 .id(payrun.getId())

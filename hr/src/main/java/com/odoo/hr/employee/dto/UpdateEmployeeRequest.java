@@ -31,4 +31,6 @@ public class UpdateEmployeeRequest {
     private String ifscCode;
     private String emergencyContactName;
     private String emergencyContactPhone;
+    private String role;
+    private String password;
 }

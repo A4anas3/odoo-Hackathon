@@ -15,6 +15,8 @@ import com.odoo.hr.organization.repository.JobPositionRepository;
 import com.odoo.hr.security.CurrentEmployeeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,14 +34,19 @@ public class EmployeeService {
     private final JobPositionRepository jobPositionRepository;
     private final CurrentEmployeeService currentEmployeeService;
     private final ContractRepository contractRepository;
+    private final com.odoo.hr.user.repository.UserRepository userRepository;
+    private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+    private final EmployeeRedisCacheService employeeRedisCacheService;
 
     @Transactional
+    @CacheEvict(value = "employees", allEntries = true)
     public EmployeeResponse registerCurrentEmployee(CreateEmployeeRequest request) {
         String authProviderUserId = currentEmployeeService.getAuthenticatedAuthProviderUserId();
         return createEmployeeWithAuthProviderUserId(request, authProviderUserId);
     }
 
     @Transactional
+    @CacheEvict(value = "employees", allEntries = true)
     public EmployeeResponse createEmployee(CreateEmployeeRequest request) {
         Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
         if (currentEmployee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(currentEmployee.getStatus())) {
@@ -112,6 +119,30 @@ public class EmployeeService {
 
         Employee saved = employeeRepository.save(employee);
         log.info("Created new employee with id: {} mapped to authProviderUserId: {}", saved.getId(), authProviderUserId);
+
+        // Auto-provision user login account with password provided during employee creation
+        String cleanEmail = saved.getEmail().trim().toLowerCase();
+        if (userRepository.findByEmailIgnoreCase(cleanEmail).isEmpty()) {
+            String rawPassword = (request.getPassword() != null && !request.getPassword().isBlank())
+                ? request.getPassword()
+                : "Passw0rd123";
+            com.odoo.hr.user.model.Role role = com.odoo.hr.user.model.Role.fromString(request.getRole());
+            java.util.Set<com.odoo.hr.user.model.Role> rolesSet = new java.util.HashSet<>();
+            rolesSet.add(role);
+            com.odoo.hr.user.model.User user = com.odoo.hr.user.model.User.builder()
+                .email(cleanEmail)
+                .passwordHash(passwordEncoder.encode(rawPassword))
+                .employee(saved)
+                .roles(rolesSet)
+                .status("ACTIVE")
+                .build();
+            userRepository.save(user);
+            log.info("Auto-provisioned login User account for employee {} with role {}", cleanEmail, role);
+        }
+
+        // Revoke all employee Redis cache keys so new employee appears immediately
+        employeeRedisCacheService.revokeAll();
+
         return EmployeeResponse.fromEntity(saved);
     }
 
@@ -125,24 +156,129 @@ public class EmployeeService {
     public EmployeeResponse getEmployeeById(UUID id) {
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Employee not found with id: " + id));
-        return EmployeeResponse.fromEntity(employee);
+        EmployeeResponse resp = EmployeeResponse.fromEntity(employee);
+        userRepository.findByEmployeeId(id).ifPresent(u -> {
+            if (u.getRoles() != null && !u.getRoles().isEmpty()) {
+                resp.setRole(u.getRoles().iterator().next().name());
+            }
+        });
+        return resp;
     }
 
     @Transactional(readOnly = true)
     public EmployeeResponse getEmployeeByAuthProviderUserId(String authProviderUserId) {
         Employee employee = employeeRepository.findByAuthProviderUserId(authProviderUserId)
                 .orElseThrow(() -> new ResourceNotFoundException("Employee not found with authProviderUserId: " + authProviderUserId));
-        return EmployeeResponse.fromEntity(employee);
+        EmployeeResponse resp = EmployeeResponse.fromEntity(employee);
+        userRepository.findByEmployeeId(employee.getId()).ifPresent(u -> {
+            if (u.getRoles() != null && !u.getRoles().isEmpty()) {
+                resp.setRole(u.getRoles().iterator().next().name());
+            }
+        });
+        return resp;
     }
 
     @Transactional(readOnly = true)
     public List<EmployeeResponse> getAllEmployees() {
-        return employeeRepository.findAll().stream()
-                .map(EmployeeResponse::fromEntity)
+        List<Employee> employees = employeeRepository.findAll(
+                org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt"));
+        List<UUID> employeeIds = employees.stream().map(Employee::getId).toList();
+        java.util.Map<UUID, String> roleByEmpId = new java.util.HashMap<>();
+        if (!employeeIds.isEmpty()) {
+            List<com.odoo.hr.user.model.User> users = userRepository.findByEmployeeIdIn(employeeIds);
+            for (com.odoo.hr.user.model.User u : users) {
+                if (u.getEmployee() != null && u.getRoles() != null && !u.getRoles().isEmpty()) {
+                    roleByEmpId.put(u.getEmployee().getId(), u.getRoles().iterator().next().name());
+                }
+            }
+        }
+        return employees.stream()
+                .map(emp -> {
+                    EmployeeResponse resp = EmployeeResponse.fromEntity(emp);
+                    if (roleByEmpId.containsKey(emp.getId())) {
+                        resp.setRole(roleByEmpId.get(emp.getId()));
+                    }
+                    return resp;
+                })
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public com.odoo.hr.common.dto.PagedResponse<EmployeeResponse> getEmployeesPaged(
+            String search, String department, String status, String type, org.springframework.data.domain.Pageable pageable) {
+
+        // Default sort: recent at top show (createdAt DESC)
+        if (pageable.getSort().isUnsorted()) {
+            pageable = org.springframework.data.domain.PageRequest.of(
+                    pageable.getPageNumber(),
+                    pageable.getPageSize(),
+                    org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt"));
+        }
+
+        String sortStr = pageable.getSort().toString();
+
+        // 1. Check Redis Cache first
+        com.odoo.hr.common.dto.PagedResponse<EmployeeResponse> cached = employeeRedisCacheService.getCachedPage(
+                pageable.getPageNumber(), pageable.getPageSize(), sortStr, search, department, status, type);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Query Database
+        boolean hasFilters = (search != null && !search.isBlank())
+                || (department != null && !department.isBlank() && !"ALL".equalsIgnoreCase(department))
+                || (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status))
+                || (type != null && !type.isBlank() && !"ALL".equalsIgnoreCase(type));
+
+        org.springframework.data.domain.Page<Employee> pageResult;
+        if (hasFilters) {
+            pageResult = employeeRepository.findWithFilters(search, department, status, type, pageable);
+        } else {
+            pageResult = employeeRepository.findAll(pageable);
+        }
+
+        // 3. Batch fetch user roles
+        List<UUID> employeeIds = pageResult.getContent().stream().map(Employee::getId).toList();
+        java.util.Map<UUID, String> roleByEmpId = new java.util.HashMap<>();
+        if (!employeeIds.isEmpty()) {
+            List<com.odoo.hr.user.model.User> users = userRepository.findByEmployeeIdIn(employeeIds);
+            for (com.odoo.hr.user.model.User u : users) {
+                if (u.getEmployee() != null && u.getRoles() != null && !u.getRoles().isEmpty()) {
+                    roleByEmpId.put(u.getEmployee().getId(), u.getRoles().iterator().next().name());
+                }
+            }
+        }
+
+        // 4. Map to DTOs
+        List<EmployeeResponse> responses = pageResult.getContent().stream()
+                .map(emp -> {
+                    EmployeeResponse resp = EmployeeResponse.fromEntity(emp);
+                    if (roleByEmpId.containsKey(emp.getId())) {
+                        resp.setRole(roleByEmpId.get(emp.getId()));
+                    }
+                    return resp;
+                })
+                .toList();
+
+        com.odoo.hr.common.dto.PagedResponse<EmployeeResponse> pagedResponse = com.odoo.hr.common.dto.PagedResponse.<EmployeeResponse>builder()
+                .content(responses)
+                .page(pageResult.getNumber())
+                .size(pageResult.getSize())
+                .totalElements(pageResult.getTotalElements())
+                .totalPages(pageResult.getTotalPages())
+                .first(pageResult.isFirst())
+                .last(pageResult.isLast())
+                .build();
+
+        // 5. Save to Redis Cache with TTL
+        employeeRedisCacheService.putCachedPage(
+                pageable.getPageNumber(), pageable.getPageSize(), sortStr, search, department, status, type, pagedResponse);
+
+        return pagedResponse;
+    }
+
     @Transactional
+    @CacheEvict(value = "employees", allEntries = true)
     public EmployeeResponse updateEmployee(UUID id, UpdateEmployeeRequest request) {
         Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
         if (currentEmployee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(currentEmployee.getStatus())) {
@@ -201,11 +337,55 @@ public class EmployeeService {
         if (request.getEmergencyContactName() != null) employee.setEmergencyContactName(request.getEmergencyContactName());
         if (request.getEmergencyContactPhone() != null) employee.setEmergencyContactPhone(request.getEmergencyContactPhone());
 
+        // Role change and password update for user account
+        if (request.getRole() != null && !request.getRole().isBlank()) {
+            com.odoo.hr.user.model.Role newRole = com.odoo.hr.user.model.Role.fromString(request.getRole());
+            userRepository.findByEmployeeId(employee.getId()).ifPresentOrElse(
+                u -> {
+                    u.setRoles(new java.util.HashSet<>(java.util.Collections.singleton(newRole)));
+                    if (request.getPassword() != null && !request.getPassword().isBlank()) {
+                        u.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+                    }
+                    userRepository.save(u);
+                    log.info("Updated user account role for employee id={} to {}", employee.getId(), newRole);
+                },
+                () -> {
+                    String pwd = (request.getPassword() != null && !request.getPassword().isBlank()) ? request.getPassword() : "Passw0rd123";
+                    java.util.Set<com.odoo.hr.user.model.Role> rolesSet = new java.util.HashSet<>();
+                    rolesSet.add(newRole);
+                    com.odoo.hr.user.model.User newUser = com.odoo.hr.user.model.User.builder()
+                        .email(employee.getEmail().trim().toLowerCase())
+                        .passwordHash(passwordEncoder.encode(pwd))
+                        .employee(employee)
+                        .roles(rolesSet)
+                        .status("ACTIVE")
+                        .build();
+                    userRepository.save(newUser);
+                    log.info("Created user account for employee id={} with role {}", employee.getId(), newRole);
+                }
+            );
+        } else if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            userRepository.findByEmployeeId(employee.getId()).ifPresent(u -> {
+                u.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+                userRepository.save(u);
+                log.info("Updated password for employee id={}", employee.getId());
+            });
+        }
+
         Employee updated = employeeRepository.save(employee);
-        return EmployeeResponse.fromEntity(updated);
+        employeeRedisCacheService.revokeAll();
+
+        EmployeeResponse resp = EmployeeResponse.fromEntity(updated);
+        userRepository.findByEmployeeId(updated.getId()).ifPresent(u -> {
+            if (u.getRoles() != null && !u.getRoles().isEmpty()) {
+                resp.setRole(u.getRoles().iterator().next().name());
+            }
+        });
+        return resp;
     }
 
     @Transactional
+    @CacheEvict(value = "employees", allEntries = true)
     public void deleteEmployee(UUID id) {
         Employee currentEmployee = currentEmployeeService.getCurrentEmployee();
         if (currentEmployee.getStatus() == null || !"ACTIVE".equalsIgnoreCase(currentEmployee.getStatus())) {
@@ -214,24 +394,22 @@ public class EmployeeService {
 
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Employee not found with id: " + id));
-        syncAuthAccountStatus(employee.getEmail(), false, true);
+        syncAuthAccountStatus(employee.getEmail(), false);
         employeeRepository.deleteById(id);
+        employeeRedisCacheService.revokeAll();
+    }
+
+    private void syncAuthAccountStatus(String email, boolean enabled) {
+        syncAuthAccountStatus(email, enabled, !enabled);
     }
 
     private void syncAuthAccountStatus(String email, boolean enabled, boolean accountLocked) {
-        try {
-            java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
-            String uri = String.format("http://localhost:8085/internal/users/status?email=%s&enabled=%b&accountLocked=%b",
-                    java.net.URLEncoder.encode(email, java.nio.charset.StandardCharsets.UTF_8), enabled, accountLocked);
-            java.net.http.HttpRequest req = java.net.http.HttpRequest.newBuilder()
-                    .uri(java.net.URI.create(uri))
-                    .method("PATCH", java.net.http.HttpRequest.BodyPublishers.noBody())
-                    .timeout(java.time.Duration.ofSeconds(3))
-                    .build();
-            client.sendAsync(req, java.net.http.HttpResponse.BodyHandlers.discarding());
-            log.info("Synced auth-service account status for {}: enabled={}, locked={}", email, enabled, accountLocked);
-        } catch (Exception e) {
-            log.warn("Could not sync auth-service status for {}: {}", email, e.getMessage());
+        if (email != null && !email.isBlank()) {
+            userRepository.findByEmailIgnoreCase(email).ifPresent(u -> {
+                u.setStatus(enabled && !accountLocked ? "ACTIVE" : "INACTIVE");
+                userRepository.save(u);
+                log.info("Synced User status directly in DB for {}: status={}", email, u.getStatus());
+            });
         }
     }
 }

@@ -25,6 +25,11 @@ public class TimeOffAllocationResponse {
     private BigDecimal allocatedDays;
     private BigDecimal usedDays;
     private BigDecimal remainingDays;
+    private String status;
+    private UUID approvedById;
+    private String approvedByName;
+    private String validity;
+    private String description;
 
     public static TimeOffAllocationResponse fromEntity(TimeOffAllocation alloc) {
         if (alloc == null) return null;
@@ -39,6 +44,11 @@ public class TimeOffAllocationResponse {
                 .allocatedDays(alloc.getAllocatedDays())
                 .usedDays(alloc.getUsedDays())
                 .remainingDays(alloc.getRemainingDays())
+                .status(alloc.getStatus() != null ? alloc.getStatus() : "APPROVED")
+                .approvedById(alloc.getApprovedBy() != null ? alloc.getApprovedBy().getId() : null)
+                .approvedByName(alloc.getApprovedBy() != null ? alloc.getApprovedBy().getFullName() : null)
+                .validity(alloc.getValidity() != null ? alloc.getValidity() : "2026 Annual Balance")
+                .description(alloc.getDescription())
                 .build();
     }
 }

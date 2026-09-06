@@ -148,7 +148,7 @@ export function DashboardPage() {
         <StatCard
           title="Attendance"
           value={isLoading ? '—' : `${summary.attendanceHealth ?? 0}%`}
-          subtitle="Present today"
+          subtitle={summary.presentAttendanceCount != null ? `${summary.presentAttendanceCount} present today` : 'Present today'}
           icon={Activity}
         />
       </div>
@@ -156,16 +156,23 @@ export function DashboardPage() {
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Payroll Trend */}
-        <Card>
+        <Card className="shadow-2xs hover:shadow-sm transition-shadow">
           <CardHeader
             title="Monthly Payroll Trend"
             subtitle="Gross wage disbursement over fiscal payruns"
+            action={
+              summary.payrollTrend && summary.payrollTrend.length > 0 ? (
+                <span className="text-[11px] font-semibold text-[#714B67] bg-[#714B67]/10 px-2.5 py-0.5 rounded-full">
+                  {summary.payrollTrend.length} {summary.payrollTrend.length === 1 ? 'Month' : 'Months'}
+                </span>
+              ) : null
+            }
           />
           <CardContent className="pt-2">
             {summary.payrollTrend && summary.payrollTrend.length > 0 ? (
-              <LineChart data={summary.payrollTrend} height={190} />
+              <LineChart data={summary.payrollTrend} height={210} />
             ) : (
-              <div className="h-[190px] flex flex-col items-center justify-center text-slate-400 text-xs">
+              <div className="h-[210px] flex flex-col items-center justify-center text-slate-400 text-xs">
                 <Inbox className="w-8 h-8 text-slate-300 mb-1 stroke-1" />
                 <p>No payrun history recorded yet</p>
               </div>
@@ -174,18 +181,25 @@ export function DashboardPage() {
         </Card>
 
         {/* Department Salary Distribution */}
-        <Card>
+        <Card className="shadow-2xs hover:shadow-sm transition-shadow">
           <CardHeader
             title="Salary Distribution by Department"
-            subtitle="Active contracts compensation breakdown"
+            subtitle="Paid salary disbursement breakdown"
+            action={
+              summary.salaryByDepartment && summary.salaryByDepartment.length > 0 ? (
+                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2.5 py-0.5 rounded-full">
+                  {summary.salaryByDepartment.length} Depts Paid
+                </span>
+              ) : null
+            }
           />
           <CardContent className="pt-2">
             {summary.salaryByDepartment && summary.salaryByDepartment.length > 0 ? (
-              <BarChart data={summary.salaryByDepartment} height={190} />
+              <BarChart data={summary.salaryByDepartment} height={210} />
             ) : (
-              <div className="h-[190px] flex flex-col items-center justify-center text-slate-400 text-xs">
+              <div className="h-[210px] flex flex-col items-center justify-center text-slate-400 text-xs">
                 <Inbox className="w-8 h-8 text-slate-300 mb-1 stroke-1" />
-                <p>No department salary contracts found</p>
+                <p>No paid department salary disbursements found</p>
               </div>
             )}
           </CardContent>

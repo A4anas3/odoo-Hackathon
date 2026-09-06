@@ -28,6 +28,7 @@ public class ContractResponse {
     private UUID workingScheduleId;
     private String workingScheduleName;
     private String status;
+    private String wageType;
     private Long version;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
@@ -39,6 +40,7 @@ public class ContractResponse {
                 .employeeId(contract.getEmployee() != null ? contract.getEmployee().getId() : null)
                 .employeeName(contract.getEmployee() != null ? contract.getEmployee().getFullName() : null)
                 .contractType(contract.getContractType())
+                .wageType(contract.getWageType())
                 .startDate(contract.getStartDate())
                 .endDate(contract.getEndDate())
                 .salary(contract.getSalary())

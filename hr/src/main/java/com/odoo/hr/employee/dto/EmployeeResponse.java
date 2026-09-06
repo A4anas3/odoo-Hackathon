@@ -31,6 +31,8 @@ public class EmployeeResponse {
     private String jobPositionTitle;
     private UUID managerId;
     private String managerName;
+    private UUID workingScheduleId;
+    private String workingScheduleName;
     private LocalDate joiningDate;
     private String employeeType;
     private String status;
@@ -40,6 +42,7 @@ public class EmployeeResponse {
     private String emergencyContactName;
     private String emergencyContactPhone;
     private Long version;
+    private String role;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 
@@ -62,6 +65,8 @@ public class EmployeeResponse {
                 .jobPositionTitle(emp.getJobPosition() != null ? emp.getJobPosition().getTitle() : null)
                 .managerId(emp.getManager() != null ? emp.getManager().getId() : null)
                 .managerName(emp.getManager() != null ? emp.getManager().getFullName() : null)
+                .workingScheduleId(emp.getWorkingSchedule() != null ? emp.getWorkingSchedule().getId() : null)
+                .workingScheduleName(emp.getWorkingSchedule() != null ? emp.getWorkingSchedule().getName() : null)
                 .joiningDate(emp.getJoiningDate())
                 .employeeType(emp.getEmployeeType())
                 .status(emp.getStatus())

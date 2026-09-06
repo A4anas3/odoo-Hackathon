@@ -1,22 +1,33 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { PageContainer } from '@/components/layout/PageContainer';
-import { Card } from '@/components/ui/Card';
 import { StatusBadge } from '@/components/badge/StatusBadge';
 import { Button } from '@/components/ui/Button';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { payslipApi } from '../api/payslipApi';
 import { formatCurrency, formatDate } from '@/lib/utils/formatters';
 import { useToast } from '@/hooks/useToast';
 import { ROUTES } from '@/config/routes';
-import { ArrowLeft, Download, Mail, Printer } from 'lucide-react';
+import {
+  ArrowLeft,
+  Calculator,
+  CreditCard,
+  Printer,
+  FileDown,
+  Info,
+  Layers,
+  Calendar,
+  User,
+  Clock,
+} from 'lucide-react';
 import { Spinner } from '@/components/loading/Spinner';
 
 export function PayslipDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const [isSending, setIsSending] = useState(false);
+  const queryClient = useQueryClient();
+
   const [isDownloading, setIsDownloading] = useState(false);
 
   const { data: payslip, isLoading } = useQuery({
@@ -24,11 +35,34 @@ export function PayslipDetailPage() {
     queryFn: () => payslipApi.getPayslipById(id),
   });
 
-  const handlePrint = () => {
-    window.print();
-  };
+  // Recompute single payslip mutation
+  const computeMutation = useMutation({
+    mutationFn: () => payslipApi.computePayslip(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payroll', 'payslip', id] });
+      queryClient.invalidateQueries({ queryKey: ['payroll', 'payslips'] });
+      toast.success('Payslip salary computation evaluated against latest salary rules.');
+    },
+    onError: (err) => {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to recompute payslip.');
+    },
+  });
 
-  const handleDownload = async () => {
+  // Mark single payslip paid
+  const payMutation = useMutation({
+    mutationFn: () => payslipApi.payPayslip(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payroll', 'payslip', id] });
+      queryClient.invalidateQueries({ queryKey: ['payroll', 'payslips'] });
+      toast.success('Payslip marked as PAID.');
+    },
+    onError: (err) => {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to mark as paid.');
+    },
+  });
+
+  // Print/Download PDF
+  const handlePrintPdf = async () => {
     if (!payslip?.id) return;
     setIsDownloading(true);
     try {
@@ -41,7 +75,7 @@ export function PayslipDetailPage() {
       link.click();
       link.parentNode.removeChild(link);
       window.URL.revokeObjectURL(url);
-      toast.success(`PDF for ${payslip?.slipNumber || 'payslip'} downloaded successfully.`);
+      toast.success(`PDF for ${payslip.slipNumber || 'payslip'} generated and downloaded.`);
     } catch (err) {
       toast.error(err?.response?.data?.message || err.message || 'Failed to download PDF.');
     } finally {
@@ -49,23 +83,10 @@ export function PayslipDetailPage() {
     }
   };
 
-  const handleEmail = async () => {
-    if (!payslip?.id) return;
-    setIsSending(true);
-    try {
-      const res = await payslipApi.sendPayslipEmail(payslip.id);
-      toast.success(res?.message || 'Payslip statement email dispatched.');
-    } catch (err) {
-      toast.error(err?.response?.data?.message || err.message || 'Failed to send email.');
-    } finally {
-      setIsSending(false);
-    }
-  };
-
   if (isLoading) {
     return (
       <PageContainer title="Payslip Details">
-        <div className="py-20 flex justify-center">
+        <div className="py-24 flex justify-center">
           <Spinner size="lg" />
         </div>
       </PageContainer>
@@ -85,163 +106,219 @@ export function PayslipDetailPage() {
     );
   }
 
-  const empName = payslip.employeeName || payslip.employee?.name || (payslip.employee?.firstName ? `${payslip.employee.firstName} ${payslip.employee.lastName || ''}`.trim() : 'Employee');
-  const empCode = payslip.employeeCode || payslip.employee?.code || '—';
-  const deptName = payslip.departmentName || payslip.employee?.dept || '—';
-  const periodDisplay = payslip.period || (payslip.periodStart ? `${formatDate(payslip.periodStart)} – ${formatDate(payslip.periodEnd)}` : '—');
+  const empName = payslip.employeeName || 'Employee';
+  const payrunName = payslip.payrunName || 'February 2026';
+  const structureName = payslip.salaryStructureName || 'Regular Salary';
+  const periodLabel = payslip.periodStart && payslip.periodEnd
+    ? `${formatDate(payslip.periodStart)} – ${formatDate(payslip.periodEnd)}`
+    : '01 Feb – 28 Feb';
+  const workedDays = payslip.workedDays ?? 20;
+  const status = payslip.status || 'DRAFT';
 
-  // Categorize lines into earnings and deductions
-  const allLines = Array.isArray(payslip.lines) ? payslip.lines : [];
-  const earnings = payslip.earnings || allLines.filter((l) => l.category !== 'DED' && l.amount > 0);
-  const deductions = payslip.deductions || allLines.filter((l) => l.category === 'DED' || l.amount < 0);
+  // Compute calculated net pay: netSalary directly from payslip, or gross - totalDeductions
+  const computedNetSalary = payslip.netSalary != null
+    ? Number(payslip.netSalary)
+    : (payslip.grossSalary != null && payslip.totalDeductions != null
+        ? Math.max(0, Number(payslip.grossSalary) - Number(payslip.totalDeductions))
+        : null);
 
-  const gross = payslip.grossSalary ?? payslip.grossAmount ?? 0;
-  const totalDeductions = payslip.totalDeductions ?? payslip.deductionsAmount ?? 0;
-  const net = payslip.netSalary ?? payslip.netAmount ?? 0;
+  // Extract lines for Salary Computation table
+  const rawLines = Array.isArray(payslip.lines) ? payslip.lines : [];
+
+  // Calculate sum of deductions from lines if totalDeductions is missing
+  const totalDeductionsFromLines = rawLines
+    .filter((l) => {
+      const cat = (l.category || '').toUpperCase();
+      return cat === 'DED' || cat === 'DEDUCTION' || cat === 'TAX';
+    })
+    .reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
+
+  const grossFromLines = rawLines
+    .filter((l) => (l.category || '').toUpperCase() === 'GROSS' || (l.ruleCode || '').toUpperCase() === 'GROSS')
+    .map((l) => Number(l.amount))
+    .find((a) => !isNaN(a) && a > 0) ?? Number(payslip.grossSalary || 0);
+
+  const effectiveNetSalary = computedNetSalary != null
+    ? computedNetSalary
+    : (grossFromLines > 0 ? Math.max(0, grossFromLines - totalDeductionsFromLines) : null);
+
+  // Ensure NET row reflects actual Net Pay (Gross minus Deductions), never unadjusted Gross Pay
+  const lines = rawLines.map((line) => {
+    const cat = (line.category || '').toUpperCase();
+    const code = (line.ruleCode || line.code || '').toUpperCase();
+    const isNet = cat === 'NET' || code === 'NET';
+    if (isNet && effectiveNetSalary != null) {
+      return {
+        ...line,
+        amount: effectiveNetSalary,
+      };
+    }
+    return line;
+  });
 
   return (
     <PageContainer
-      title={`Payslip ${payslip.slipNumber || ''}`}
-      description={`Disbursement statement for ${periodDisplay}`}
+      title={`Payslip / ${empName} / ${payrunName}`}
+      description="Detailed salary computation for one employee."
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" size="sm" icon={ArrowLeft} onClick={() => navigate(ROUTES.PAYSLIPS)}>
             Back
           </Button>
-          <Button variant="secondary" size="sm" icon={Printer} onClick={handlePrint}>
-            Print
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={Mail}
-            isLoading={isSending}
-            onClick={handleEmail}
-          >
-            Email
-          </Button>
+
+          {status !== 'PAID' && (
+            <Button
+              variant="primary"
+              size="sm"
+              icon={Calculator}
+              isLoading={computeMutation.isPending}
+              onClick={() => computeMutation.mutate()}
+            >
+              COMPUTE
+            </Button>
+          )}
+
+          {status !== 'PAID' && (
+            <Button
+              variant="success"
+              size="sm"
+              icon={CreditCard}
+              isLoading={payMutation.isPending}
+              onClick={() => payMutation.mutate()}
+            >
+              MARK PAID
+            </Button>
+          )}
+
           <Button
             variant="primary"
             size="sm"
-            icon={Download}
+            icon={Printer}
             isLoading={isDownloading}
-            onClick={handleDownload}
+            onClick={handlePrintPdf}
           >
-            Download PDF
+            PRINT PAYSLIP
           </Button>
         </div>
       }
     >
-      {/* Printable Payslip Invoice Layout */}
-      <Card className="max-w-4xl mx-auto border border-slate-200 shadow-sm p-6 sm:p-8 space-y-6 bg-white">
-        {/* Company Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-6 border-b border-slate-200 gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#714B67] text-white flex items-center justify-center font-bold text-lg">
-              O
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900 leading-none">Odoo Enterprise Suite</h2>
-              <p className="text-xs text-slate-400 mt-1">Human Resources & Payroll Department</p>
-            </div>
-          </div>
-          <div className="text-right">
-            <span className="text-xs font-mono font-bold text-slate-900 block">
-              {payslip.slipNumber || '—'}
+      {/* Payslip Header Fields Grid (Matches Wireframe 4 Form View) */}
+      <div className="bg-white rounded-xl border border-slate-200/90 p-5 shadow-2xs space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 text-xs">
+          <div>
+            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">Employee</span>
+            <span className="font-bold text-slate-900 text-sm mt-0.5 block flex items-center gap-1.5">
+              <User className="w-3.5 h-3.5 text-[#714B67]" />
+              {empName}
             </span>
-            <div className="mt-1 flex justify-end">
-              <StatusBadge status={payslip.status || 'PAID'} />
-            </div>
           </div>
-        </div>
 
-        {/* Employee Info Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-50/80 rounded-lg text-xs">
           <div>
-            <span className="text-[10px] text-slate-400 font-semibold uppercase block">Employee Name</span>
-            <span className="font-bold text-slate-900 mt-0.5 block">{empName}</span>
+            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">Salary Structure</span>
+            <span className="font-semibold text-slate-800 text-sm mt-0.5 block flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-[#714B67]" />
+              {structureName}
+            </span>
           </div>
-          <div>
-            <span className="text-[10px] text-slate-400 font-semibold uppercase block">Employee Code</span>
-            <span className="font-mono font-bold text-slate-900 mt-0.5 block">{empCode}</span>
-          </div>
-          <div>
-            <span className="text-[10px] text-slate-400 font-semibold uppercase block">Department</span>
-            <span className="font-semibold text-slate-900 mt-0.5 block">{deptName}</span>
-          </div>
-          <div>
-            <span className="text-[10px] text-slate-400 font-semibold uppercase block">Pay Period</span>
-            <span className="font-semibold text-[#714B67] mt-0.5 block">{periodDisplay}</span>
-          </div>
-        </div>
 
-        {/* Earnings & Deductions Tables */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Earnings */}
-          <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
-            <div className="bg-slate-50 px-3.5 py-2 font-bold text-slate-700 border-b border-slate-200">
-              Earnings & Allowances
-            </div>
-            <div className="divide-y divide-slate-100">
-              {earnings.length > 0 ? (
-                earnings.map((e, idx) => (
-                  <div key={idx} className="px-3.5 py-2 flex justify-between">
-                    <span className="text-slate-600">{e.ruleName || e.name}</span>
-                    <span className="font-semibold text-slate-900">{formatCurrency(Math.abs(e.amount))}</span>
-                  </div>
-                ))
-              ) : (
-                <div className="px-3.5 py-3 text-slate-400 italic">No breakdown items recorded</div>
-              )}
-            </div>
-            <div className="bg-slate-50/70 px-3.5 py-2.5 font-bold flex justify-between border-t border-slate-200 text-slate-900">
-              <span>Gross Earnings</span>
-              <span>{formatCurrency(gross)}</span>
+          <div>
+            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">Pay Run</span>
+            <span className="font-semibold text-slate-800 text-sm mt-0.5 block">
+              {payrunName}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">Period</span>
+            <span className="font-semibold text-slate-800 text-sm mt-0.5 block flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-[#714B67]" />
+              {periodLabel}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">Status</span>
+            <div className="mt-1">
+              <StatusBadge status={status} />
             </div>
           </div>
 
-          {/* Deductions */}
-          <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
-            <div className="bg-slate-50 px-3.5 py-2 font-bold text-slate-700 border-b border-slate-200">
-              Deductions & Withholdings
-            </div>
-            <div className="divide-y divide-slate-100">
-              {deductions.length > 0 ? (
-                deductions.map((d, idx) => (
-                  <div key={idx} className="px-3.5 py-2 flex justify-between">
-                    <span className="text-slate-600">{d.ruleName || d.name}</span>
-                    <span className="font-semibold text-rose-600">-{formatCurrency(Math.abs(d.amount))}</span>
-                  </div>
-                ))
-              ) : (
-                <div className="px-3.5 py-3 text-slate-400 italic">No deductions applied</div>
-              )}
-            </div>
-            <div className="bg-slate-50/70 px-3.5 py-2.5 font-bold flex justify-between border-t border-slate-200 text-rose-700">
-              <span>Total Deductions</span>
-              <span>-{formatCurrency(totalDeductions)}</span>
-            </div>
+          <div>
+            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">Worked Days</span>
+            <span className="font-bold text-slate-900 text-sm mt-0.5 block flex items-center gap-1.5 font-mono">
+              <Clock className="w-3.5 h-3.5 text-[#714B67]" />
+              {workedDays}
+            </span>
           </div>
+        </div>
+      </div>
+
+      {/* Salary Computation Table (Matches Wireframe 4) */}
+      <div className="bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-2xs">
+        <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+            Salary Computation
+          </h3>
+          <span className="text-xs text-slate-400 font-mono">
+            {payslip.slipNumber || `SLIP-${payslip.id.slice(0, 8).toUpperCase()}`}
+          </span>
         </div>
 
-        {/* Net Take-Home Highlight Banner */}
-        <div className="p-4 rounded-lg bg-[#714B67]/10 border border-[#714B67]/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div>
-            <span className="text-xs font-semibold text-[#714B67] uppercase tracking-wider block">
-              Net Disbursed Take-Home Salary
-            </span>
-            <span className="text-2xl font-black text-[#714B67] mt-0.5 block tracking-tight">
-              {formatCurrency(net)}
-            </span>
-          </div>
-          <div className="text-right text-xs text-slate-500">
-            <span className="block font-medium">Payment Mode: Direct Deposit</span>
-            <span className="text-[11px] text-slate-400">
-              {payslip.paymentDate ? `Disbursed on ${formatDate(payslip.paymentDate)}` : 'Processed'}
-            </span>
-          </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+              <tr>
+                <th className="p-3">Rule</th>
+                <th className="p-3">Category</th>
+                <th className="p-3 text-right">Amount</th>
+                <th className="p-3 font-mono text-right">Code</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {lines.map((line, idx) => {
+                const cat = (line.category || '').toUpperCase();
+                const isNet = cat === 'NET';
+                const isGross = cat === 'GROSS';
+                const isDed = cat === 'DED' || cat === 'DEDUCTION' || cat === 'TAX';
+
+                return (
+                  <tr
+                    key={line.id || idx}
+                    className={`transition-colors ${isNet ? 'bg-[#714B67]/5 font-bold' : isGross ? 'bg-slate-50 font-semibold' : 'hover:bg-slate-50/70'}`}
+                  >
+                    <td className="p-3">
+                      <span className={`block leading-tight ${isNet ? 'text-[#714B67] text-sm' : 'text-slate-900'}`}>
+                        {line.ruleName || line.name}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <span
+                        className={`inline-flex px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                          isNet
+                            ? 'bg-[#714B67]/10 text-[#714B67] border-[#714B67]/30'
+                            : isDed
+                            ? 'bg-rose-50 text-rose-700 border-rose-200'
+                            : isGross
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        }`}
+                      >
+                        {line.category}
+                      </span>
+                    </td>
+                    <td className={`p-3 text-right font-mono ${isNet ? 'text-[#714B67] text-base' : isDed ? 'text-rose-600' : 'text-slate-900'}`}>
+                      {isDed ? '-' : ''}{formatCurrency(line.amount)}
+                    </td>
+                    <td className="p-3 text-right font-mono text-slate-500 font-semibold">
+                      {line.ruleCode || line.code}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-      </Card>
+      </div>
     </PageContainer>
   );
 }

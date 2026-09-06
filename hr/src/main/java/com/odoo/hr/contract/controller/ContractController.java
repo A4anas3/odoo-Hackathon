@@ -20,8 +20,9 @@ public class ContractController {
     private final ContractService contractService;
 
     @GetMapping
-    public ResponseEntity<List<ContractResponse>> getAllContracts() {
-        return ResponseEntity.ok(contractService.getAllContracts());
+    public ResponseEntity<List<ContractResponse>> getAllContracts(
+            @RequestParam(required = false) String status) {
+        return ResponseEntity.ok(contractService.getAllContracts(status));
     }
 
     @GetMapping("/my")
@@ -43,6 +44,15 @@ public class ContractController {
     public ResponseEntity<ContractResponse> createContract(@Valid @RequestBody ContractRequest request) {
         ContractResponse created = contractService.createContract(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<ContractResponse> updateContract(
+            @PathVariable UUID id,
+            @Valid @RequestBody ContractRequest request,
+            @RequestParam(required = false, defaultValue = "false") boolean preserveHistory) {
+        boolean shouldPreserve = preserveHistory || Boolean.TRUE.equals(request.getPreserveHistory());
+        return ResponseEntity.ok(contractService.updateContract(id, request, shouldPreserve));
     }
 
     @PatchMapping("/{id}/status")

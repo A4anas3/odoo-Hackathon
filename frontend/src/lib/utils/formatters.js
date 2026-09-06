@@ -1,9 +1,9 @@
 /**
- * Formats a number as currency (defaults to USD or INR).
+ * Formats a number as currency (defaults to INR).
  */
-export function formatCurrency(amount, currency = 'USD') {
-  if (amount === null || amount === undefined || isNaN(amount)) return '$0.00';
-  return new Intl.NumberFormat('en-US', {
+export function formatCurrency(amount, currency = 'INR') {
+  if (amount === null || amount === undefined || isNaN(amount)) return '₹0.00';
+  return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: currency,
     minimumFractionDigits: 2,

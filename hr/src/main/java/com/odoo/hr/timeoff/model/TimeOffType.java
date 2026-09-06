@@ -32,6 +32,29 @@ public class TimeOffType extends BaseEntity {
     @Builder.Default
     private Boolean requiresApproval = true;
 
+    @Column(name = "unit", length = 20)
+    @Builder.Default
+    private String unit = "Days"; // Days, Hours
+
+    @Column(name = "requires_allocation")
+    @Builder.Default
+    private Boolean requiresAllocation = true;
+
+    @Column(name = "approval_type", length = 50)
+    @Builder.Default
+    private String approvalType = "Manager"; // Manager, Officer, No Validation
+
+    @Column(name = "payroll_work_entry", length = 100)
+    @Builder.Default
+    private String payrollWorkEntry = "Leave Work Entry";
+
+    @Column(name = "display_color", length = 50)
+    @Builder.Default
+    private String displayColor = "Blue";
+
+    @Column(name = "configuration_notes", columnDefinition = "TEXT")
+    private String configurationNotes;
+
     @Column(name = "status", length = 30)
     @Builder.Default
     private String status = "ACTIVE";

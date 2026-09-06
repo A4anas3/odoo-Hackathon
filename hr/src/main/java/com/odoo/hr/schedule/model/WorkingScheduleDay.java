@@ -36,4 +36,12 @@ public class WorkingScheduleDay extends BaseEntity {
     @Column(name = "break_minutes")
     @Builder.Default
     private Integer breakMinutes = 60;
+
+    public double calculateHours() {
+        if (startTime == null || endTime == null) return 0.0;
+        long minutes = java.time.Duration.between(startTime, endTime).toMinutes();
+        if (minutes < 0) minutes += 24 * 60; // night shift overnight
+        long workingMinutes = Math.max(0, minutes - (breakMinutes != null ? breakMinutes : 0));
+        return Math.round((workingMinutes / 60.0) * 10.0) / 10.0;
+    }
 }

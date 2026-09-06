@@ -11,5 +11,6 @@ import java.util.UUID;
 @Repository
 public interface SalaryRuleRepository extends JpaRepository<SalaryRule, UUID> {
     List<SalaryRule> findBySalaryStructureIdOrderBySequenceAsc(UUID salaryStructureId);
+    Optional<SalaryRule> findFirstByCode(String code);
     Optional<SalaryRule> findByCode(String code);
 }

@@ -3,6 +3,7 @@ package com.odoo.hr.employee.model;
 import com.odoo.hr.common.BaseEntity;
 import com.odoo.hr.organization.model.Department;
 import com.odoo.hr.organization.model.JobPosition;
+import com.odoo.hr.schedule.model.WorkingSchedule;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -65,6 +66,10 @@ public class Employee extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "manager_id", foreignKey = @ForeignKey(name = "fk_employees_manager"))
     private Employee manager;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "working_schedule_id", foreignKey = @ForeignKey(name = "fk_employees_working_schedule"))
+    private WorkingSchedule workingSchedule;
 
     @Column(name = "joining_date")
     private LocalDate joiningDate;

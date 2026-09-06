@@ -1,40 +1,36 @@
 import React, { useState } from 'react';
 import { PageContainer } from '@/components/layout/PageContainer';
-import { DataTable } from '@/components/table/DataTable';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/modal/Modal';
 import { FormField } from '@/components/form/FormField';
 import { Input } from '@/components/form/Input';
 import { Select } from '@/components/form/Select';
 import { useToast } from '@/hooks/useToast';
-import { Calculator, Plus, Trash2 } from 'lucide-react';
-import { cn } from '@/lib/utils/cn';
+import { Plus, Search, Info, Calculator, Layers } from 'lucide-react';
+import { ROUTES } from '@/config/routes';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { salaryRuleApi } from '../api/salaryRuleApi';
-
-const CATEGORY_COLORS = {
-  BASIC: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-  ALLOWANCE: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  ALW: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  GROSS: 'bg-blue-50 text-blue-700 border-blue-200',
-  DEDUCTION: 'bg-rose-50 text-rose-700 border-rose-200',
-  DED: 'bg-rose-50 text-rose-700 border-rose-200',
-  TAX: 'bg-amber-50 text-amber-700 border-amber-200',
-  NET: 'bg-purple-50 text-purple-700 border-purple-200 font-bold',
-};
+import { salaryStructureApi } from '@/features/salary/structures/api/salaryStructureApi';
 
 export function SalaryRuleBuilderPage() {
+  const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
+
+  const [search, setSearch] = useState('');
+  const [selectedStructureFilter, setSelectedStructureFilter] = useState('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
+
   const [newRule, setNewRule] = useState({
     name: '',
     code: '',
     sequence: 1,
-    category: 'ALLOWANCE',
-    calculationType: 'FIXED',
+    category: 'BASIC',
+    salaryStructureId: '',
+    calculationType: 'PERCENTAGE',
     value: '',
-    percentage: '',
+    percentage: '50',
     formula: '',
     description: '',
   });
@@ -42,6 +38,11 @@ export function SalaryRuleBuilderPage() {
   const { data: rules = [], isLoading } = useQuery({
     queryKey: ['salaryRules'],
     queryFn: () => salaryRuleApi.getAllRules(),
+  });
+
+  const { data: structures = [] } = useQuery({
+    queryKey: ['salaryStructures'],
+    queryFn: () => salaryStructureApi.getAllStructures(),
   });
 
   const createMutation = useMutation({
@@ -52,29 +53,22 @@ export function SalaryRuleBuilderPage() {
       setNewRule({
         name: '',
         code: '',
-        sequence: (rules.length + 2),
-        category: 'ALLOWANCE',
-        calculationType: 'FIXED',
+        sequence: (rules.length + 5),
+        category: 'BASIC',
+        salaryStructureId: structures[0]?.id || '',
+        calculationType: 'PERCENTAGE',
         value: '',
-        percentage: '',
+        percentage: '50',
         formula: '',
         description: '',
       });
       toast.success(`Salary rule "${created.name || 'Rule'}" created successfully.`);
+      if (created?.id) {
+        navigate(ROUTES.SALARY_RULE_DETAIL(created.id));
+      }
     },
     onError: (err) => {
       toast.error(err?.response?.data?.message || err.message || 'Failed to create salary rule.');
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id) => salaryRuleApi.deleteRule(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['salaryRules'] });
-      toast.success('Salary rule removed successfully.');
-    },
-    onError: (err) => {
-      toast.error(err?.response?.data?.message || err.message || 'Failed to delete salary rule.');
     },
   });
 
@@ -87,182 +81,214 @@ export function SalaryRuleBuilderPage() {
       name: newRule.name.trim(),
       code: newRule.code.trim().toUpperCase(),
       category: newRule.category,
+      salaryStructureId: newRule.salaryStructureId || structures[0]?.id || null,
       calculationType: newRule.calculationType,
       value: newRule.value ? Number(newRule.value) : null,
       percentage: newRule.percentage ? Number(newRule.percentage) : null,
       formula: newRule.formula ? newRule.formula.trim() : null,
       description: newRule.description ? newRule.description.trim() : null,
-      sequence: Number(newRule.sequence) || (rules.length + 1),
+      sequence: Number(newRule.sequence) || 1,
     });
   };
 
-  const handleDelete = (id) => {
-    deleteMutation.mutate(id);
-  };
+  // Filtered rules
+  const filtered = rules.filter((r) => {
+    // Structure filter
+    if (selectedStructureFilter !== 'ALL') {
+      const structName = r.salaryStructureName || r.salaryStructure?.name || '';
+      if (!structName.toLowerCase().includes(selectedStructureFilter.toLowerCase())) {
+        return false;
+      }
+    }
 
-  const columns = [
-    {
-      header: 'Seq',
-      key: 'sequence',
-      width: '60px',
-      render: (seq) => (
-        <span className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center font-mono font-bold text-slate-600 text-[11px]">
-          {seq || 1}
-        </span>
-      ),
-    },
-    {
-      header: 'Rule Name',
-      key: 'name',
-      render: (name, row) => (
-        <div>
-          <span className="font-semibold text-slate-800 block">{name}</span>
-          <span className="text-[11px] text-slate-400 font-mono font-bold">{row.code}</span>
-        </div>
-      ),
-    },
-    {
-      header: 'Category',
-      key: 'category',
-      render: (cat) => (
-        <span
-          className={cn(
-            'inline-flex px-2 py-0.5 rounded text-[10px] font-semibold border',
-            CATEGORY_COLORS[cat] || 'bg-slate-100 text-slate-600 border-slate-200'
-          )}
-        >
-          {cat}
-        </span>
-      ),
-    },
-    {
-      header: 'Calculation Type',
-      key: 'calculationType',
-      render: (type) => (
-        <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 font-mono">
-          {type || 'FIXED'}
-        </span>
-      ),
-    },
-    {
-      header: 'Computation Logic',
-      key: 'formula',
-      render: (formula, row) => {
-        let display = '—';
-        if (row.calculationType === 'PERCENTAGE') {
-          display = `${row.percentage != null ? row.percentage : 0}% of base wage`;
-        } else if (row.calculationType === 'FIXED') {
-          display = `$${row.value != null ? row.value : 0} fixed`;
-        } else if (row.calculationType === 'FORMULA' || formula) {
-          display = formula || row.formula || 'Custom Formula';
-        }
-        return (
-          <div className="font-mono text-[11px] text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-100 max-w-sm truncate">
-            {display}
-          </div>
-        );
-      },
-    },
-    {
-      header: 'Description',
-      key: 'description',
-      render: (desc) => <span className="text-slate-500 text-xs line-clamp-1">{desc || '—'}</span>,
-    },
-    {
-      header: 'Actions',
-      key: 'actions',
-      align: 'right',
-      render: (_, row) => (
-        <Button
-          variant="ghost"
-          size="xs"
-          className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
-          onClick={() => handleDelete(row.id)}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
-      ),
-    },
-  ];
+    // Search query
+    if (!search) return true;
+    const name = (r.name || '').toLowerCase();
+    const code = (r.code || '').toLowerCase();
+    const cat = (r.category || '').toLowerCase();
+    const q = search.toLowerCase();
+    return name.includes(q) || code.includes(q) || cat.includes(q);
+  });
+
+  const sortedRules = [...filtered].sort((a, b) => (a.sequence || 1) - (b.sequence || 1));
 
   return (
     <PageContainer
-      title="Salary Rule Builder"
-      description="Design automated computation pipelines for payroll components, allowances, and statutory withholdings."
+      title="Salary Rules"
+      description="List view."
       actions={
         <Button variant="primary" size="sm" icon={Plus} onClick={() => setIsModalOpen(true)}>
-          New Salary Rule
+          NEW
         </Button>
       }
     >
-      {/* Execution Pipeline Header */}
-      <div className="bg-[#714B67]/5 border border-[#714B67]/20 rounded-lg p-3.5 flex items-center gap-3 text-xs text-[#714B67] mb-4">
-        <Calculator className="w-4 h-4 shrink-0" />
-        <div>
-          <span className="font-semibold">Execution Pipeline: </span>
-          Rules are evaluated strictly by sequence order. Net salary is computed automatically after all earnings and deductions are resolved.
+      {/* Search & Structure Filter Bar (Matches Wireframe 5) */}
+      <div className="bg-white p-3 rounded-lg border border-slate-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="w-64 relative">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search salary rules..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-md pl-9 pr-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-[#714B67] transition-all"
+            />
+          </div>
+
+          <div className="w-48">
+            <Select
+              options={[
+                { value: 'ALL', label: 'All Structures' },
+                ...structures.map((s) => ({ value: s.name, label: s.name })),
+              ]}
+              value={selectedStructureFilter}
+              onChange={(e) => setSelectedStructureFilter(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <span className="text-xs text-slate-500 font-medium">
+          Showing {sortedRules.length} rule{sortedRules.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {/* Salary Rules Table (Matches Wireframe 5 List View) */}
+      <div className="bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-2xs">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+              <tr>
+                <th className="p-3">Rule Name</th>
+                <th className="p-3 font-mono">Code</th>
+                <th className="p-3">Category</th>
+                <th className="p-3">Structure</th>
+                <th className="p-3 font-mono text-center">Sequence</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {sortedRules.length > 0 ? (
+                sortedRules.map((rule) => {
+                  const cat = (rule.category || '').toUpperCase();
+                  const isNet = cat === 'NET';
+                  const isGross = cat === 'GROSS';
+                  const isDed = cat === 'DED' || cat === 'DEDUCTION' || cat === 'TAX';
+                  const structName = rule.salaryStructureName || rule.salaryStructure?.name || 'Regular Salary';
+
+                  return (
+                    <tr
+                      key={rule.id || rule.code}
+                      onClick={() => navigate(ROUTES.SALARY_RULE_DETAIL(rule.id))}
+                      className="hover:bg-slate-50/80 cursor-pointer transition-colors"
+                    >
+                      <td className="p-3">
+                        <span className="font-semibold text-slate-900 block leading-tight">{rule.name}</span>
+                        <span className="text-[10px] text-slate-400">{rule.description || 'Calculation rule'}</span>
+                      </td>
+                      <td className="p-3 font-mono font-bold text-slate-700">
+                        {rule.code}
+                      </td>
+                      <td className="p-3">
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                            isNet
+                              ? 'bg-[#714B67]/10 text-[#714B67] border-[#714B67]/30'
+                              : isDed
+                              ? 'bg-rose-50 text-rose-700 border-rose-200'
+                              : isGross
+                              ? 'bg-blue-50 text-blue-700 border-blue-200'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          }`}
+                        >
+                          {rule.category}
+                        </span>
+                      </td>
+                      <td className="p-3 text-slate-600 font-medium">
+                        <span className="inline-flex items-center gap-1">
+                          <Layers className="w-3 h-3 text-[#714B67]" />
+                          {structName}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center font-mono font-bold text-slate-800">
+                        {rule.sequence ?? 1}
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={5} className="py-12 text-center text-slate-400">
+                    No salary rules found matching the selected filter.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={rules}
-        isLoading={isLoading}
-        emptyTitle="No Salary Rules Configured"
-        emptyDescription="No custom salary rules found. Click 'New Salary Rule' to configure earnings, allowances, and deductions."
-      />
-
-      {/* New Rule Modal */}
+      {/* New Salary Rule Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title="Create Salary Rule"
-        description="Define dynamic salary calculation logic and execution sequence"
+        description="Define dynamic salary calculation logic and execution sequence."
       >
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Rule Name" required>
               <Input
-                placeholder="e.g. Remote Stipend or Health Insurance"
+                placeholder="e.g. Basic Salary"
                 value={newRule.name}
                 onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
               />
             </FormField>
-            <FormField label="Rule Code" required helperText="Upper-case variable code (e.g. REMOTE)">
+            <FormField label="Rule Code" required helperText="Upper-case variable (e.g. BASIC)">
               <Input
-                placeholder="e.g. REMOTE"
+                placeholder="e.g. BASIC"
                 value={newRule.code}
                 onChange={(e) => setNewRule({ ...newRule, code: e.target.value })}
               />
             </FormField>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Salary Structure" required>
+              <Select
+                options={structures.map((s) => ({ value: s.id, label: s.name }))}
+                value={newRule.salaryStructureId || (structures[0]?.id || '')}
+                onChange={(e) => setNewRule({ ...newRule, salaryStructureId: e.target.value })}
+              />
+            </FormField>
+
             <FormField label="Category">
               <Select
                 options={[
-                  { value: 'BASIC', label: 'BASIC (Base Wage)' },
-                  { value: 'ALLOWANCE', label: 'ALLOWANCE (Earnings)' },
-                  { value: 'GROSS', label: 'GROSS (Total Earnings)' },
-                  { value: 'DEDUCTION', label: 'DEDUCTION (Pre-tax)' },
-                  { value: 'TAX', label: 'TAX (Withholding)' },
-                  { value: 'NET', label: 'NET (Take-Home)' },
+                  { value: 'BASIC', label: 'Basic' },
+                  { value: 'ALLOWANCE', label: 'Allowance' },
+                  { value: 'GROSS', label: 'Gross' },
+                  { value: 'DEDUCTION', label: 'Deduction' },
+                  { value: 'NET', label: 'Net' },
                 ]}
                 value={newRule.category}
                 onChange={(e) => setNewRule({ ...newRule, category: e.target.value })}
               />
             </FormField>
-            <FormField label="Calculation Mode">
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Computation Mode">
               <Select
                 options={[
-                  { value: 'FIXED', label: 'FIXED (Static Amount)' },
-                  { value: 'PERCENTAGE', label: 'PERCENTAGE (% of Base)' },
-                  { value: 'FORMULA', label: 'FORMULA (Expression)' },
+                  { value: 'PERCENTAGE', label: 'Percentage of Wage' },
+                  { value: 'FIXED', label: 'Fixed Amount' },
+                  { value: 'FORMULA', label: 'Python Code / Formula' },
                 ]}
                 value={newRule.calculationType}
                 onChange={(e) => setNewRule({ ...newRule, calculationType: e.target.value })}
               />
             </FormField>
+
             <FormField label="Sequence">
               <Input
                 type="number"
@@ -272,38 +298,33 @@ export function SalaryRuleBuilderPage() {
             </FormField>
           </div>
 
-          {newRule.calculationType === 'FORMULA' ? (
-            <FormField label="Formula Expression" helperText="Use codes: BASIC, HRA, GROSS, etc.">
+          {newRule.calculationType === 'PERCENTAGE' ? (
+            <FormField label="Percentage (%)">
               <Input
-                placeholder="e.g. BASIC * 0.15 + 100"
+                type="number"
+                placeholder="50"
+                value={newRule.percentage}
+                onChange={(e) => setNewRule({ ...newRule, percentage: e.target.value })}
+              />
+            </FormField>
+          ) : newRule.calculationType === 'FIXED' ? (
+            <FormField label="Fixed Amount (₹)">
+              <Input
+                type="number"
+                placeholder="5000"
+                value={newRule.value}
+                onChange={(e) => setNewRule({ ...newRule, value: e.target.value })}
+              />
+            </FormField>
+          ) : (
+            <FormField label="Formula / Python Code">
+              <Input
+                placeholder="e.g. result = contract.wage * 0.5"
                 value={newRule.formula}
                 onChange={(e) => setNewRule({ ...newRule, formula: e.target.value })}
               />
             </FormField>
-          ) : (
-            <FormField label={newRule.calculationType === 'PERCENTAGE' ? 'Percentage (%)' : 'Amount ($)'}>
-              <Input
-                type="number"
-                placeholder={newRule.calculationType === 'PERCENTAGE' ? '15' : '250'}
-                value={newRule.calculationType === 'PERCENTAGE' ? newRule.percentage : newRule.value}
-                onChange={(e) => {
-                  if (newRule.calculationType === 'PERCENTAGE') {
-                    setNewRule({ ...newRule, percentage: e.target.value });
-                  } else {
-                    setNewRule({ ...newRule, value: e.target.value });
-                  }
-                }}
-              />
-            </FormField>
           )}
-
-          <FormField label="Description">
-            <Input
-              placeholder="e.g. Monthly stipend for remote employees"
-              value={newRule.description}
-              onChange={(e) => setNewRule({ ...newRule, description: e.target.value })}
-            />
-          </FormField>
 
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
             <Button variant="secondary" size="sm" onClick={() => setIsModalOpen(false)}>

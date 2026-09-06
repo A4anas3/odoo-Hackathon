@@ -58,11 +58,46 @@ public class TimeOffController {
         return ResponseEntity.ok(timeOffService.getMyAllocations());
     }
 
+    @GetMapping("/allocations")
+    public ResponseEntity<List<com.odoo.hr.timeoff.dto.TimeOffAllocationResponse>> getAllocations(
+            @RequestParam(required = false) UUID employeeId) {
+        return ResponseEntity.ok(timeOffService.getAllocations(employeeId));
+    }
+
     @PostMapping("/allocations")
     public ResponseEntity<com.odoo.hr.timeoff.dto.TimeOffAllocationResponse> createAllocation(
             @Valid @RequestBody com.odoo.hr.timeoff.dto.CreateTimeOffAllocationDto request) {
         com.odoo.hr.timeoff.dto.TimeOffAllocationResponse created = timeOffService.createAllocation(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    @GetMapping("/requests/{id}")
+    public ResponseEntity<TimeOffResponse> getRequestById(@PathVariable UUID id) {
+        return ResponseEntity.ok(timeOffService.getRequestById(id));
+    }
+
+    @GetMapping("/allocations/{id}")
+    public ResponseEntity<com.odoo.hr.timeoff.dto.TimeOffAllocationResponse> getAllocationById(@PathVariable UUID id) {
+        return ResponseEntity.ok(timeOffService.getAllocationById(id));
+    }
+
+    @PatchMapping("/allocations/{id}/review")
+    public ResponseEntity<com.odoo.hr.timeoff.dto.TimeOffAllocationResponse> reviewAllocation(
+            @PathVariable UUID id,
+            @Valid @RequestBody com.odoo.hr.timeoff.dto.ReviewAllocationDto reviewDto) {
+        return ResponseEntity.ok(timeOffService.reviewAllocation(id, reviewDto));
+    }
+
+    @GetMapping("/types/{id}")
+    public ResponseEntity<com.odoo.hr.timeoff.dto.TimeOffTypeResponse> getTypeById(@PathVariable UUID id) {
+        return ResponseEntity.ok(timeOffService.getTypeById(id));
+    }
+
+    @PutMapping("/types/{id}")
+    public ResponseEntity<com.odoo.hr.timeoff.dto.TimeOffTypeResponse> updateType(
+            @PathVariable UUID id,
+            @Valid @RequestBody com.odoo.hr.timeoff.dto.CreateTimeOffTypeDto request) {
+        return ResponseEntity.ok(timeOffService.updateTimeOffType(id, request));
     }
 
     @PatchMapping("/requests/{id}/review")

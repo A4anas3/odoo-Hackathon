@@ -1,16 +1,19 @@
 package com.odoo.hr.employee.controller;
 
+import com.odoo.hr.common.dto.PagedResponse;
 import com.odoo.hr.employee.dto.CreateEmployeeRequest;
 import com.odoo.hr.employee.dto.EmployeeResponse;
 import com.odoo.hr.employee.dto.UpdateEmployeeRequest;
 import com.odoo.hr.employee.service.EmployeeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -48,9 +51,36 @@ public class EmployeeController {
         return ResponseEntity.ok(employeeService.getEmployeeById(id));
     }
 
+    /**
+     * Get employees with pagination and Redis caching.
+     * Default sort: recent at top show (createdAt DESC).
+     * Pass ?unpaged=true for the complete unpaged list.
+     */
     @GetMapping
-    public ResponseEntity<List<EmployeeResponse>> getAllEmployees() {
-        return ResponseEntity.ok(employeeService.getAllEmployees());
+    public ResponseEntity<?> getAllEmployees(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String department,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false, defaultValue = "false") boolean unpaged,
+            @PageableDefault(page = 0, size = 12, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        if (unpaged) {
+            return ResponseEntity.ok(employeeService.getAllEmployees());
+        }
+        return ResponseEntity.ok(employeeService.getEmployeesPaged(search, department, status, type, pageable));
+    }
+
+    /**
+     * Explicit paginated endpoint returning PagedResponse<EmployeeResponse>.
+     */
+    @GetMapping("/paged")
+    public ResponseEntity<PagedResponse<EmployeeResponse>> getEmployeesPaged(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String department,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String type,
+            @PageableDefault(page = 0, size = 12, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return ResponseEntity.ok(employeeService.getEmployeesPaged(search, department, status, type, pageable));
     }
 
     @PutMapping("/{id}")

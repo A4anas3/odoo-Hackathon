@@ -42,6 +42,9 @@ public class PayslipResponse {
     private BigDecimal netSalary;
     private String status;
     private String pdfReference;
+    private String payrunName;
+    private Integer workedDays;
+    private Integer standardDays;
     private List<PayslipLineDto> lines;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
@@ -80,7 +83,15 @@ public class PayslipResponse {
         BigDecimal basic = BigDecimal.ZERO;
         if (slip.getLines() != null) {
             lineDtos = slip.getLines().stream()
-                    .map(PayslipLineDto::fromEntity)
+                    .map(l -> {
+                        var dto = PayslipLineDto.fromEntity(l);
+                        if (dto != null && ("NET".equalsIgnoreCase(dto.getCategory()) || "NET".equalsIgnoreCase(dto.getRuleCode()))) {
+                            if (slip.getNetSalary() != null) {
+                                dto.setAmount(slip.getNetSalary());
+                            }
+                        }
+                        return dto;
+                    })
                     .toList();
             basic = slip.getLines().stream()
                     .filter(l -> "BASIC".equalsIgnoreCase(l.getCategory()) || "BASIC".equalsIgnoreCase(l.getRuleCode()))
@@ -94,12 +105,21 @@ public class PayslipResponse {
         String dept = emp != null && emp.getDepartment() != null ? emp.getDepartment().getName() : "—";
         String job = emp != null && emp.getJobPosition() != null ? emp.getJobPosition().getTitle() : "—";
 
-        String slipNum = "SLIP-" + slip.getId().toString().substring(0, 8).toUpperCase();
+        String prName = null;
+        if (slip.getPayrun() != null && slip.getPayrun().getPeriodStart() != null) {
+            String m = slip.getPayrun().getPeriodStart().getMonth().name();
+            prName = (m.charAt(0) + m.substring(1).toLowerCase()) + " " + slip.getPayrun().getPeriodStart().getYear();
+        }
+
+        String slipNum = "SLIP-" + (slip.getId() != null ? slip.getId().toString().substring(0, 8).toUpperCase() : "0000");
 
         return PayslipResponse.builder()
                 .id(slip.getId())
                 .slipNumber(slipNum)
                 .payrunId(slip.getPayrun() != null ? slip.getPayrun().getId() : null)
+                .payrunName(prName)
+                .workedDays(20)
+                .standardDays(22)
                 .employeeId(emp != null ? emp.getId() : null)
                 .employeeName(emp != null ? emp.getFullName() : null)
                 .employeeCode(code)

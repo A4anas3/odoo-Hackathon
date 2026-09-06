@@ -25,4 +25,11 @@ export const salaryStructureApi = {
     const res = await apiClient.delete(`/salary/structures/${id}`);
     return res.data;
   },
+
+  async copyRules(targetStructureId, sourceStructureId) {
+    const res = await apiClient.post(`/salary/structures/${targetStructureId}/copy-rules`, null, {
+      params: { sourceStructureId },
+    });
+    return res.data;
+  },
 };

@@ -23,6 +23,7 @@ public class JobPositionController {
 
     private final JobPositionRepository jobPositionRepository;
     private final DepartmentRepository departmentRepository;
+    private final com.odoo.hr.employee.repository.EmployeeRepository employeeRepository;
 
     @GetMapping
     public ResponseEntity<List<JobPositionResponse>> getAllJobPositions(
@@ -31,13 +32,21 @@ public class JobPositionController {
                 ? jobPositionRepository.findByDepartmentId(departmentId)
                 : jobPositionRepository.findAll();
 
-        return ResponseEntity.ok(list.stream().map(JobPositionResponse::fromEntity).toList());
+        return ResponseEntity.ok(list.stream().map(job -> {
+            JobPositionResponse resp = JobPositionResponse.fromEntity(job);
+            resp.setCurrentStaff(employeeRepository.countByJobPositionId(job.getId()));
+            return resp;
+        }).toList());
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<JobPositionResponse> getJobPositionById(@PathVariable UUID id) {
         return jobPositionRepository.findById(id)
-                .map(JobPositionResponse::fromEntity)
+                .map(job -> {
+                    JobPositionResponse resp = JobPositionResponse.fromEntity(job);
+                    resp.setCurrentStaff(employeeRepository.countByJobPositionId(job.getId()));
+                    return resp;
+                })
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }

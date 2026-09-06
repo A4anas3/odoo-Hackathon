@@ -2,6 +2,7 @@ package com.odoo.hr.attendance.model;
 
 import com.odoo.hr.common.BaseEntity;
 import com.odoo.hr.employee.model.Employee;
+import com.odoo.hr.payroll.model.Payslip;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -23,7 +24,9 @@ import java.time.OffsetDateTime;
     indexes = {
         @Index(name = "idx_attendance_employee_id", columnList = "employee_id"),
         @Index(name = "idx_attendance_date", columnList = "attendance_date"),
-        @Index(name = "idx_attendance_status", columnList = "status")
+        @Index(name = "idx_attendance_status", columnList = "status"),
+        @Index(name = "idx_attendance_is_paid", columnList = "is_paid"),
+        @Index(name = "idx_attendance_payslip_id", columnList = "payslip_id")
     }
 )
 public class Attendance extends BaseEntity {
@@ -63,7 +66,21 @@ public class Attendance extends BaseEntity {
     @Column(name = "correction_reason", columnDefinition = "TEXT")
     private String correctionReason;
 
+    @Column(name = "notes", columnDefinition = "TEXT")
+    private String notes;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "corrected_by", foreignKey = @ForeignKey(name = "fk_attendance_corrected_by"))
     private Employee correctedBy;
+
+    @Column(name = "is_paid", columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean isPaid = false;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "payslip_id", foreignKey = @ForeignKey(name = "fk_attendance_payslip"))
+    private Payslip payslip;
+
+    @Column(name = "paid_at")
+    private OffsetDateTime paidAt;
 }

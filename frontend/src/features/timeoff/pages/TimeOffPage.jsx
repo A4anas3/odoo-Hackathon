@@ -16,8 +16,9 @@ import { useMyProfile } from '../../employees/hooks/useEmployees';
 import { PERMISSIONS } from '../../../config/permissions';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../../../hooks/useToast';
-import { Calendar, Plus, CheckCircle2, Clock, CalendarDays, Plane, Users, UserCheck, AlertTriangle, Layers } from 'lucide-react';
+import { Calendar, Plus, CheckCircle2, Clock, CalendarDays, Plane, Users, UserCheck, AlertTriangle, Layers, X } from 'lucide-react';
 import { formatDate } from '../../../lib/utils/formatters';
+import { useSearchParams } from 'react-router-dom';
 
 export function TimeOffPage() {
   const toast = useToast();
@@ -78,10 +79,13 @@ export function TimeOffPage() {
     queryFn: () => timeoffApi.getMyRequests(),
   });
 
-  // Query Personal Allocations
+  const [searchParams, setSearchParams] = useSearchParams();
+  const employeeIdParam = searchParams.get('employeeId');
+
+  // Query Allocations (Personal or filtered by employeeId when navigated from smart button)
   const { data: myAllocations = [], isLoading: isAllocationsLoading } = useQuery({
-    queryKey: ['timeoff', 'allocations', 'my'],
-    queryFn: () => timeoffApi.getMyAllocations(),
+    queryKey: ['timeoff', 'allocations', employeeIdParam || 'my'],
+    queryFn: () => (employeeIdParam ? timeoffApi.getAllocations(employeeIdParam) : timeoffApi.getMyAllocations()),
   });
 
   // Query Leave Types

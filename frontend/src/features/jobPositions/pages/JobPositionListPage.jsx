@@ -8,11 +8,12 @@ import { Input } from '../../../components/form/Input';
 import { Select } from '../../../components/form/Select';
 import { StatusBadge } from '../../../components/badge/StatusBadge';
 import { useToast } from '../../../hooks/useToast';
-import { Briefcase, Plus } from 'lucide-react';
+import { Briefcase, Plus, Users } from 'lucide-react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { jobPositionApi } from '../api/jobPositionApi';
 import { departmentApi } from '../../departments/api/departmentApi';
+import { useEmployees } from '../../employees/hooks/useEmployees';
 
 export function JobPositionListPage() {
   const toast = useToast();
@@ -29,6 +30,15 @@ export function JobPositionListPage() {
     queryKey: ['departments'],
     queryFn: () => departmentApi.getAllDepartments(),
   });
+
+  const { data: employees = [] } = useEmployees();
+
+  const getStaffCount = (row) => {
+    if (typeof row.currentStaff === 'number') return row.currentStaff;
+    return employees.filter(
+      (e) => e.jobPositionId === row.id || e.jobPositionTitle === row.title || e.jobPosition?.id === row.id
+    ).length;
+  };
 
   const createMutation = useMutation({
     mutationFn: (data) => jobPositionApi.createJobPosition(data),
@@ -71,17 +81,25 @@ export function JobPositionListPage() {
     },
     {
       header: 'Department',
-      key: 'department',
-      render: (dept) => <span className="font-medium text-slate-700">{dept}</span>,
+      key: 'departmentName',
+      render: (dept, row) => (
+        <span className="font-medium text-slate-700">
+          {dept || row.department?.name || '—'}
+        </span>
+      ),
     },
     {
       header: 'Current Staffing',
       key: 'currentStaff',
-      render: (cur, row) => (
-        <span className="font-semibold text-slate-800">
-          {cur} / {row.targetStaff} staff
-        </span>
-      ),
+      render: (cur, row) => {
+        const count = getStaffCount(row);
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-100 text-slate-800">
+            <Users className="w-3.5 h-3.5 text-slate-500" />
+            <span>{count} {count === 1 ? 'employee' : 'employees'}</span>
+          </span>
+        );
+      },
     },
     {
       header: 'Status',
